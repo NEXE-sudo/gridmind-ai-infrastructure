@@ -15,7 +15,7 @@ dist/
 downloads/
 eggs/
 .eggs/
-lib/
+/lib/
 lib64/
 parts/
 sdist/
@@ -47,10 +47,15 @@ ENV/
 htmlcov/
 
 # Package manager
-uv.lock
 
 # Files
 outputs/*.json
+benchmarks/latest/
+benchmarks/local/
+*.sqlite3
+*.db
+coverage.xml
+*.tsbuildinfo
 
 # Node modules
 node_modules/

@@ -8,6 +8,22 @@ export default defineConfig(({ mode }) => ({
   server: {
     host: "::",
     port: 8080,
+    proxy: Object.fromEntries(
+      [
+        "/health",
+        "/ready",
+        "/state",
+        "/policies",
+        "/workloads",
+        "/nodes",
+        "/reset",
+        "/step",
+        "/run",
+        "/benchmarks",
+        "/history",
+        "/exports",
+      ].map((path) => [path, "http://127.0.0.1:7861"]),
+    ),
     hmr: {
       overlay: false,
     },

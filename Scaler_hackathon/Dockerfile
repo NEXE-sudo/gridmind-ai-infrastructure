@@ -47,7 +47,7 @@ RUN python -c "import sys; print(sys.executable)"
 FROM node:20-slim AS frontend-builder
 WORKDIR /app/frontend
 COPY agent-grid-view/package*.json ./
-RUN npm install
+RUN npm ci
 COPY agent-grid-view/ .
 RUN npm run build
 
@@ -81,4 +81,4 @@ HEALTHCHECK --interval=30s --timeout=10s --start-period=120s --retries=5 \
 
 # Run the FastAPI server
 # HF Spaces injects PORT=7860; fall back to 8000 for local Docker runs
-CMD ["sh", "-c", "cd /app/env && uvicorn server.app:app --host 0.0.0.0 --port ${PORT:-7860}"]
+CMD ["sh", "-c", "cd /app/env && uvicorn server.gridmind_app:app --host 0.0.0.0 --port ${PORT:-7860}"]

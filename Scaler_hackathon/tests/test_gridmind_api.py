@@ -3,11 +3,15 @@ from fastapi.testclient import TestClient
 
 from server import gridmind_app
 from server.datacenter_simulator import DatacenterSimulator
+from server.decision import Proposal
 
 
 @pytest.fixture(autouse=True)
 def isolated_simulator(monkeypatch):
     monkeypatch.setattr(gridmind_app, "sim", DatacenterSimulator(seed=7))
+    monkeypatch.setattr(gridmind_app, "active_scenario", "standard")
+    monkeypatch.setattr(gridmind_app, "recent_runs", [])
+    monkeypatch.setattr(gridmind_app, "latest_benchmark", None)
 
 
 def test_app_startup_and_health_state_policy_routes():
@@ -36,7 +40,7 @@ def test_app_startup_and_health_state_policy_routes():
 def test_reset_step_and_run_behaviour():
     with TestClient(gridmind_app.app) as client:
         reset = client.post("/reset", json={"seed": 31})
-        step = client.post("/step", json={"assignments": {"infer-001": "gpu-a"}})
+        step = client.post("/step", json={"assignments": {"infer-001": "gpu-a100"}})
         run = client.post("/run", json={"policy": "resource_aware", "steps": 2})
 
     assert reset.status_code == 200
@@ -49,6 +53,49 @@ def test_reset_step_and_run_behaviour():
     assert run.json()["history"][0]["decision"] == "resource_aware"
 
 
+def test_reset_scenario_controls_create_reproducible_simulations():
+    with TestClient(gridmind_app.app) as client:
+        surge = client.post(
+            "/reset", json={"seed": 31, "scenario": "workload_surge"}
+        )
+        failure = client.post(
+            "/reset", json={"seed": 31, "scenario": "node_failure"}
+        )
+        deadlines = client.post(
+            "/reset", json={"seed": 31, "scenario": "tight_deadlines"}
+        )
+
+    assert surge.status_code == 200
+    assert len(surge.json()["workloads"]) == 16
+    assert any(item["id"].endswith("-surge") for item in surge.json()["workloads"])
+    assert failure.status_code == 200
+    assert failure.json()["failure_probability"] == 0.35
+    assert deadlines.status_code == 200
+    assert all(
+        item["deadline"] <= item["submission_time"] + max(1, item["duration"] // 2)
+        for item in deadlines.json()["workloads"]
+    )
+
+
+def test_benchmark_history_latest_and_csv_export():
+    with TestClient(gridmind_app.app) as client:
+        result = client.post(
+            "/benchmarks/run",
+            json={"seeds": [3], "policies": ["fifo", "resource_aware"]},
+        )
+        latest = client.get("/benchmarks/latest")
+        history = client.get("/history?limit=2")
+        exported = client.get("/exports/latest.csv")
+
+    assert result.status_code == 200
+    assert len(result.json()["runs"]) == 2
+    assert latest.json()["runs"] == result.json()["runs"]
+    assert [run["kind"] for run in history.json()["runs"]] == ["benchmark", "benchmark"]
+    assert exported.status_code == 200
+    assert exported.headers["content-type"].startswith("text/csv")
+    assert len(exported.text.splitlines()) == 3
+
+
 def test_invalid_actions_and_request_schemas_return_422_or_rejections():
     with TestClient(gridmind_app.app) as client:
         rejected_action = client.post(
@@ -57,6 +104,7 @@ def test_invalid_actions_and_request_schemas_return_422_or_rejections():
         unknown_field = client.post("/step", json={"not_an_action": True})
         invalid_id_type = client.post("/step", json={"assignments": {"train-001": 3}})
         invalid_seed = client.post("/reset", json={"seed": "31"})
+        invalid_scenario = client.post("/reset", json={"scenario": "unknown"})
         invalid_policy = client.post("/run", json={"policy": "unknown"})
         invalid_limit = client.post("/run", json={"steps": 101})
 
@@ -64,17 +112,34 @@ def test_invalid_actions_and_request_schemas_return_422_or_rejections():
     assert rejected_action.json()["rejected_actions"] == [
         {"workload_id": "train-001", "reason": "unknown_node"}
     ]
-    for response in (unknown_field, invalid_id_type, invalid_seed, invalid_policy, invalid_limit):
+    for response in (
+        unknown_field,
+        invalid_id_type,
+        invalid_seed,
+        invalid_scenario,
+        invalid_policy,
+        invalid_limit,
+    ):
         assert response.status_code == 422
 
 
 def test_invalid_nemotron_assignment_uses_and_reports_safe_fallback(monkeypatch):
     monkeypatch.setattr(
-        gridmind_app, "nemotron_propose", lambda _: {"train-001": "unknown-node"}
+        "server.decision.request_proposal",
+        lambda _: Proposal(
+            {"train-001": "unknown-node"},
+            "Place the training workload.",
+            "model",
+        ),
     )
 
+    monkeypatch.setenv("NEBIUS_API_KEY", "test-key")
+    monkeypatch.setenv("GRIDMIND_MODEL", "nvidia/test-model")
     with TestClient(gridmind_app.app) as client:
-        response = client.post("/run", json={"policy": "nemotron", "steps": 1})
+        response = client.post(
+            "/run",
+            json={"policy": "nemotron", "steps": 1, "use_live_model": True},
+        )
 
     assert response.status_code == 200
     result = response.json()
@@ -85,11 +150,17 @@ def test_invalid_nemotron_assignment_uses_and_reports_safe_fallback(monkeypatch)
 
 def test_valid_nemotron_assignment_is_applied_without_fallback(monkeypatch):
     monkeypatch.setattr(
-        gridmind_app, "nemotron_propose", lambda _: {"infer-001": "gpu-a"}
+        "server.decision.request_proposal",
+        lambda _: Proposal({"infer-001": "gpu-a"}, "Fits the available node.", "model"),
     )
 
+    monkeypatch.setenv("NEBIUS_API_KEY", "test-key")
+    monkeypatch.setenv("GRIDMIND_MODEL", "nvidia/test-model")
     with TestClient(gridmind_app.app) as client:
-        response = client.post("/run", json={"policy": "nemotron", "steps": 1})
+        response = client.post(
+            "/run",
+            json={"policy": "nemotron", "steps": 1, "use_live_model": True},
+        )
 
     assert response.status_code == 200
     result = response.json()

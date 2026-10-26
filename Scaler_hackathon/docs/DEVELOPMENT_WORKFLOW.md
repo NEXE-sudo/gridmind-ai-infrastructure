@@ -2,65 +2,76 @@
 
 ## Working agreement
 
-Prefer phase-sized pull requests that deliver a coherent capability across code,
-tests, docs, and a demonstrable user outcome. Avoid one-PR-per-file increments.
-Split only at a real integration boundary or where review risk demands it.
+Keep a feature branch based on the current `feat/gridmind-repurpose`
+integration branch. Deliver coherent behavior with tests, docs, and phase
+register changes. Preserve legacy energy-grid source and uncommitted user work.
+This comprehensive implementation is intended to be one PR, not a sequence of
+file-level PRs.
 
-## Branch and PR rules
+## Local verification
 
-1. Start from the latest integration branch and inspect git status.
-2. Use one descriptive branch per phase, e.g. feat/gridmind-phase-2-scheduler.
-3. Preserve the original baseline branch; do not force-push shared branches.
-4. Include implementation, tests, docs, and phase-register changes in the same PR.
-5. Run targeted tests, then relevant full-suite and frontend checks.
-6. Review the diff for old-domain leftovers, secrets, generated files, and unsupported claims.
-7. Open a PR to the agreed integration branch. Describe behaviour and evidence in plain sentences.
-8. Merge only after checks and review. Record the merged commit and update the phase register.
+From the repository root:
 
-## Required PR description
+```bash
+cd Scaler_hackathon
+uv sync --locked --extra dev
+uv run python -m pytest -q
+uv run ruff check \
+  server/datacenter_simulator.py server/workload_scheduler.py \
+  server/metrics.py server/nemotron.py server/decision.py \
+  server/benchmarks.py server/gridmind_app.py \
+  tests/test_gridmind_simulator.py tests/test_gridmind_api.py \
+  tests/test_gridmind_metrics.py tests/test_gridmind_benchmarks.py \
+  tests/test_nemotron.py scripts/smoke_test_nemotron.py
+cd agent-grid-view
+npm ci
+npm test -- --run
+npm run lint
+npx tsc -b --pretty false
+npm run build
+```
 
-- Problem and user-visible outcome
-- Main design choices and trade-offs
-- Components changed
-- Test commands and exact results
-- Manual smoke-test steps
-- Security and failure-mode notes
-- Known limitations and next phase
+The legacy repository has pre-existing Ruff findings outside the GridMind
+modules, so the CI lint gate is scoped to changed GridMind Python modules.
+Frontend lint can emit inherited Fast Refresh warnings; errors fail the gate.
 
-## Quality gates
+## CI
 
-- Deterministic tests for simulation and scheduling.
-- Invalid actions must be rejected without corrupting state.
-- Model output is validated by the same simulator rules as other proposals.
-- Inference failures must not break the deterministic fallback.
-- Compare policies using the same workloads and seeds.
-- Separate estimated energy from real telemetry.
-- Never log or commit API keys.
-- Do not claim tests, live model calls, benchmarks, or deployments without evidence.
+`.github/workflows/ci.yml` runs Python 3.11 tests and GridMind Ruff checks,
+plus Node 20 dashboard tests, lint, type diagnostics, and production build.
+CI uses `uv.lock` and `package-lock.json`. CI results must be checked on the
+actual PR before merge; local success is not a remote CI claim.
 
-## Local commands
+## Runtime and demo checks
 
-From the `NEXE-sudo/gridmind-ai-infrastructure` repository root (not from the
-original `Scaler_Energy-Manager` checkout):
+From `Scaler_hackathon/`:
 
-    cd Scaler_hackathon
-    uv sync --extra dev
-    uv run python -c "from server.gridmind_app import app; print(app.title)"
-    uv run python -m pytest tests/test_gridmind_simulator.py -q
-    uv run python -m pytest -q
-    uv run ruff check .
-    uv run uvicorn server.gridmind_app:app --reload --port 7861
+```bash
+uv run uvicorn server.gridmind_app:app --reload --port 7861
+```
 
-In a second terminal:
+In another terminal:
 
-    curl -fsS http://127.0.0.1:7861/health
-    curl -fsS http://127.0.0.1:7861/state
-    curl -fsS -X POST http://127.0.0.1:7861/run -H 'content-type: application/json' -d '{"policy":"resource_aware","steps":5}'
+```bash
+curl -fsS http://127.0.0.1:7861/health
+curl -fsS http://127.0.0.1:7861/ready
+curl -fsS http://127.0.0.1:7861/state
+curl -fsS -X POST http://127.0.0.1:7861/run \
+  -H 'content-type: application/json' \
+  -d '{"policy":"resource_aware","steps":5}'
+```
 
-The GridMind API is initially separate so the existing energy-grid application
-remains available while migration is in progress.
+Use `docs/DEMO_SCRIPT.md` for the full reproducible path. Model catalogue and
+inference checks are explicitly opt-in; ordinary tests never call a provider.
 
-The correct import root is `Scaler_hackathon/`. Running Uvicorn from the
-original repository's same-named directory will not find the GridMind modules
-from this repository. Use the isolated `NEXE-sudo/gridmind-ai-infrastructure`
-checkout and its own dependencies.
+## PR and release checklist
+
+- Record base commit and inspect Git status before editing.
+- Include actual test output and distinguish local checks from CI.
+- Review for secret leakage, unintended artifacts, path/config drift, and
+  claims that exceed evidence.
+- Preserve generated benchmark output only when generated by current code.
+- Update `docs/PROJECT_PLAN.md` and `docs/PR_LOG.md` from facts after PR/commit
+  creation; do not guess PR number, commit hash, or merge result.
+- Merge only after required reviews/checks pass; do not delete or rewrite the
+  default branch.
