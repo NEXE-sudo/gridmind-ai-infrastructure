@@ -44,8 +44,9 @@ or published video.
 
 ## PR #4 benchmark-validity hardening
 
-PR #4 starts from the verified `feat/gridmind-repurpose` base and carries the
-unmerged PR #3 work plus the review fixes; PR #3 remains open and untouched.
+PR #4 was prepared from the verified `feat/gridmind-repurpose` base with the
+then-unmerged PR #3 work plus the review fixes. PRs #3 and #4 are now merged
+into that base; PR #5 remains open and is not included in this branch.
 The original fixed horizons and stress constraints are retained. A run marked
 `completed` now means the simulator executed its complete declared horizon,
 not that its workload queue drained. Structurally impossible work is
