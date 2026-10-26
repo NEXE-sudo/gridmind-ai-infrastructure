@@ -86,7 +86,9 @@ Update this file in every PR. Keep entries factual and evidence-based.
   passed. Full and production `npm audit` — 0 findings. Python 3.11 runtime
   plus legacy test-extra `pip-audit` — 0 findings. The separate optional
   `legacy-training` extra has 69 findings across `datasets`, `torch`, and
-  `transformers` and is excluded from the GridMind runtime/CI.
+  `transformers` and is excluded from the GridMind runtime/CI. GitHub Actions
+  Python and dashboard jobs passed on PR head `8796514`; this documentation
+  update will trigger a final PR check run.
 - Benchmark evidence: checked-in five-seed suite — 200 runs across 10
   scenarios and 4 policies; 64 completed, 136 horizon-incomplete, 0 failed.
   Repeated CSV and Markdown outputs were byte-identical. Results are
@@ -96,10 +98,10 @@ Update this file in every PR. Keep entries factual and evidence-based.
   license grant, or demo video is claimed. Python 3.10's optional legacy
   extra resolves a Pillow release with known advisories because the patched
   release requires Python 3.11+.
-- Follow-up phase: run and inspect GitHub CI on the PR head; obtain authorized
-  credentials and a verified model ID for live inference; confirm rights for
-  a public license; publish the under-three-minute demo; decide whether to
-  upgrade or retire the historical training extra.
+- Follow-up phase: obtain authorized credentials and a verified model ID for
+  live inference; confirm rights for a public license; publish the
+  under-three-minute demo; decide whether to upgrade or retire the historical
+  training extra.
 - PR status: opened as #3 from `feat/gridmind-scenario-lab-benchmarks` to
   `feat/gridmind-repurpose`, initially at commit `7848f77`. Review only; not
   merged.
