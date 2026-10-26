@@ -1,52 +1,67 @@
 # GridMind project plan and phase register
 
-This is the canonical delivery record. Update it in the same PR as phase changes.
-Do not mark work complete until code, tests, documentation, and evidence agree.
+This is the delivery record. A phase is complete only when implementation,
+tests, documentation, and supporting evidence agree. “Prepared” is not the
+same as externally verified.
 
 ## Goal
 
-GridMind is a simulation-first AI infrastructure operator. It proposes GPU
-workload placements under capacity, memory, deadline, and power constraints.
-The environment validates every action and reports reproducible outcomes.
-The original Scaler Energy Manager is retained as provenance while the new
-domain is validated.
+GridMind evaluates data-centre workload scheduling across heterogeneous GPU
+capacity, memory, deadlines, failures, synthetic power, and operating cost.
+The original Scaler Energy Manager remains preserved as historical project
+code and is not the GridMind runtime.
 
-## Phases
+## Phase register
 
-| Phase | Scope | Status | Exit criteria |
+| Phase | Scope | Status | Evidence / exit criteria |
 |---|---|---|---|
-| P0 | Baseline, provenance, scope, working agreement | Complete | Existing energy-grid source retained; separate GridMind entry point documented |
-| P1 | Simulator, workload model, baseline schedulers, API, tests | In review | Import, simulator, API, and full-suite checks recorded in PR log |
-| P2 | Deadline/SLA accounting, node failures, scenario configuration | Planned | Scenario tests and reproducible seeds |
-| P3 | Nebius Token Factory and NVIDIA Nemotron integration | Planned | Verified model ID, live call, latency/error evidence, fallback tested |
-| P4 | Benchmark harness across FIFO, heuristic, and model policies | Planned | Raw results, multiple seeds, variance and exact commands |
-| P5 | Dashboard conversion to GPU operations | Planned | UI uses new API and comparison results |
-| P6 | Reliability, security, CI, dependency review | Planned | CI green; input and failure paths covered |
-| P7 | Demo and submission package | Planned | Reproducible setup, demo, architecture, limitations |
+| P0 | Baseline, provenance, scope, working agreement | Complete in PR #1 | Separate GridMind entry point and legacy source preserved; baseline test result is in `docs/PR_LOG.md`. |
+| P1 | Simulator, lifecycle, constraints, baseline schedulers, API | Complete in this PR | Seeded heterogeneous scenarios, power/memory limits, arrivals, failure/recovery, preemption/requeue, API tests; full Python suite. |
+| P2 | Shared metrics, paired multi-seed experiments, export/report | Complete offline in this PR | CLI sample JSON/CSV/Markdown generated from actual code; definitions and pairing documented; failed/incomplete runs retained. |
+| P3 | Nebius Token Factory and NVIDIA Nemotron | Implemented; external verification pending | Adapter, schema validation, bounded retry/timeout, fallback, mocked tests and smoke commands. Exact model ID and real inference require authorized credentials and a live smoke test. |
+| P4 | GridMind API and operations dashboard | Implemented for local single session | Scenario controls, node/workload state, policies, run/step/reset, benchmark/history/export; frontend tests and build. |
+| P5 | Reliability, security, CI, packaging | Local checks prepared; release validation pending | Unit/API/UI tests, CI workflow, lockfile, lint/build steps. CI has not run remotely yet; deployment and license remain blockers. |
+| P6 | Hackathon/demo submission package | Prepared, not submission complete | Setup, architecture, methodology, model boundary, threat/limitations, actual sample report, video script and checklist. Public video, license, live model evidence, and any public URL remain outstanding. |
+
+## PR #1 foundation already delivered
+
+PR #1 introduced the isolated GridMind simulator/scheduler/API, initial
+resource and power checks, guarded optional model proposals, lazy legacy
+imports, and baseline tests. It was squash-merged as
+`5ebc47ca8395c67aacd754bbb66a824c42081727`; the factual merge and post-merge
+checks are recorded in `docs/PR_LOG.md`.
+
+## Comprehensive PR scope
+
+This PR strengthens workload transitions and scenario seeding; adds shared
+metrics, deterministic policy execution, repeatable multi-seed experiments,
+JSON/CSV/Markdown reporting, API experiment retrieval, scenario controls, and
+the GridMind console; and adds integration tests, CI, sample outputs, setup
+and submission documentation. It does not claim an actual Token Factory
+request, public deployment, open-source license grant, or published video.
+
+## Exit criteria for remaining work
+
+1. **Live model verification:** authorized Token Factory key; exact NVIDIA ID
+   returned by catalogue; catalogue check and real inference smoke both
+   succeed; capture sanitized status, latency/usage if returned, and date.
+2. **Public licensing:** repository owner confirms rights for project and
+   inherited assets; add the selected compatible license and verify all
+   third-party notices. Do not submit as openly licensed before this.
+3. **Public demo:** record the actual app in <3 minutes, publish it, and test
+   the public video URL.
+4. **Deployment (optional if local demo is accepted):** deploy to an authorized
+   service, verify health/readiness and live URL, then document service limits
+   and secret handling. Do not invent a URL.
+5. **Final release:** run CI on the final commit, confirm PR review/checks and
+   merge status, reconcile phase register/PR log with the actual PR and commit,
+   and re-check current Devpost rules and deadline.
 
 ## Guardrails
 
-- This is a simulation, not a production GPU orchestrator.
-- Power and energy are estimates, never hardware telemetry.
-- Model output is an untrusted proposal; simulator validation is authoritative.
-- Missing credentials or inference failure must allow deterministic fallback.
-- Compare policies on identical workloads and seeds.
-- Do not commit secrets, private traces, or machine-specific configuration.
-- Every benchmark claim records command, seed set, commit, metrics, and raw output.
-
-## Per-PR updates
-
-For every PR, record its link, phase, changed components, tests actually run,
-observed results, remaining risks, and next step. Never claim a test passed if
-the command was not run and the output inspected.
-
-### P1 foundation reliability corrections
-
-- Kept the legacy energy-grid implementation and entry point; package exports
-  now load OpenEnv-backed classes only when requested.
-- GridMind API input models reject unknown fields and coercible invalid types.
-- Added simulator-side placement validation for model proposals, node limits,
-  aggregate power, preemption, one-step node failures, recovery, and energy
-  accounting across job completion.
-- Validation state and exact results are recorded in `docs/PR_LOG.md` only
-  after commands have been run.
+- The simulator is not a real cluster operator; estimates are synthetic.
+- Model output is untrusted and cannot bypass deterministic validation.
+- Missing credentials/provider failure must allow deterministic fallback.
+- Compare policies on identical workload sets and seeds; retain failed runs.
+- Do not claim a model call, cloud cost, result, license, merge, deployment, or
+  video unless backed by actual evidence.

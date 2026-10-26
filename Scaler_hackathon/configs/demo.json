@@ -1,0 +1,117 @@
+{
+  "name": "GridMind mixed inference and training demo",
+  "description": "Synthetic heterogeneous GPU pool, deadline-sensitive inference, and staggered training arrivals.",
+  "power_budget_kw": 7.8,
+  "energy_price_per_kwh": 0.08,
+  "failure_probability": 0.02,
+  "recovery_steps": 1,
+  "arrival_jitter_steps": 2,
+  "max_steps": 60,
+  "nodes": [
+    {
+      "id": "gpu-a100",
+      "gpu_count": 4,
+      "memory_gb": 80,
+      "power_limit_kw": 3.5,
+      "idle_kw": 0.2,
+      "per_gpu_kw": 0.65,
+      "gpu_model": "NVIDIA A100"
+    },
+    {
+      "id": "gpu-l40s",
+      "gpu_count": 4,
+      "memory_gb": 48,
+      "power_limit_kw": 3.0,
+      "idle_kw": 0.18,
+      "per_gpu_kw": 0.55,
+      "gpu_model": "NVIDIA L40S"
+    },
+    {
+      "id": "gpu-t4",
+      "gpu_count": 2,
+      "memory_gb": 24,
+      "power_limit_kw": 1.8,
+      "idle_kw": 0.12,
+      "per_gpu_kw": 0.4,
+      "gpu_model": "NVIDIA T4"
+    }
+  ],
+  "workloads": [
+    {
+      "id": "infer-001",
+      "name": "Realtime inference batch",
+      "gpu_count": 1,
+      "memory_gb": 12,
+      "duration": 3,
+      "priority": 5,
+      "deadline_after_minutes": 8
+    },
+    {
+      "id": "train-001",
+      "name": "Fine-tune language model",
+      "gpu_count": 2,
+      "memory_gb": 40,
+      "duration": 12,
+      "priority": 3,
+      "deadline_after_minutes": 30
+    },
+    {
+      "id": "embed-001",
+      "name": "Embedding index refresh",
+      "gpu_count": 1,
+      "memory_gb": 8,
+      "duration": 6,
+      "priority": 2,
+      "deadline_after_minutes": 24
+    },
+    {
+      "id": "train-002",
+      "name": "Batch pretraining",
+      "gpu_count": 4,
+      "memory_gb": 44,
+      "duration": 18,
+      "priority": 2,
+      "deadline_after_minutes": 48,
+      "arrival_time": 2
+    },
+    {
+      "id": "infer-002",
+      "name": "Interactive inference",
+      "gpu_count": 1,
+      "memory_gb": 16,
+      "duration": 2,
+      "priority": 5,
+      "deadline_after_minutes": 7,
+      "arrival_time": 1
+    },
+    {
+      "id": "eval-001",
+      "name": "Model evaluation",
+      "gpu_count": 2,
+      "memory_gb": 24,
+      "duration": 8,
+      "priority": 1,
+      "deadline_after_minutes": 38,
+      "arrival_time": 1
+    },
+    {
+      "id": "serve-001",
+      "name": "Serving cache warmup",
+      "gpu_count": 1,
+      "memory_gb": 10,
+      "duration": 4,
+      "priority": 4,
+      "deadline_after_minutes": 14
+    },
+    {
+      "id": "train-003",
+      "name": "LoRA fine-tune",
+      "gpu_count": 2,
+      "memory_gb": 32,
+      "duration": 10,
+      "priority": 3,
+      "deadline_after_minutes": 40,
+      "arrival_time": 3
+    }
+  ]
+}

@@ -7,6 +7,7 @@ Update this file in every PR. Keep entries factual and evidence-based.
 | PR | Phase | Scope | Status / evidence |
 |---|---|---|---|
 | [#1](https://github.com/NEXE-sudo/gridmind-ai-infrastructure/pull/1) | P0–P1 | Plan, workflow, simulator, schedulers, guarded Nemotron proposal path, API, tests | Squash-merged 2026-10-26 as `5ebc47ca8395c67aacd754bbb66a824c42081727`; post-merge verification passed |
+| [#2](https://github.com/NEXE-sudo/gridmind-ai-infrastructure/pull/2) | P2–P7 | Complete GridMind simulation, metrics, paired-seed benchmark, dashboard, API, docs, and CI | Open; implementation commit `1359ed23efcc28867e69326c4db656ba0588263f`; verification and remaining release blockers below |
 
 ## Entry template
 
@@ -20,6 +21,45 @@ Update this file in every PR. Keep entries factual and evidence-based.
 - Risks/limitations:
 - Follow-up phase:
 - Merged commit:
+
+### PR #2 — Complete simulation and evaluation platform
+- Phase(s): P2–P8.
+- Problem solved: finish the GridMind conversion as a reproducible data-centre
+  operations simulation and demonstrable policy-evaluation product while
+  preserving the legacy energy-grid project.
+- Behaviour delivered: heterogeneous GPU nodes and workload lifecycle;
+  deterministic FIFO, priority, resource-aware, and guarded optional Nemotron
+  scheduling; shared operational metrics; paired seeded experiments and
+  machine-readable exports; FastAPI operations endpoints; React console;
+  CI, setup and submission documentation.
+- Key files/components: `server/datacenter_simulator.py`,
+  `server/workload_scheduler.py`, `server/metrics.py`, `server/decision.py`,
+  `server/nemotron.py`, `server/benchmarks.py`, `server/gridmind_app.py`,
+  `agent-grid-view/src/pages/GridMindConsole.tsx`, `.github/workflows/ci.yml`,
+  and `docs/`.
+- Tests run and exact result: pre-change baseline — 110 Python tests passed;
+  final Python suite — 133 passed; benchmark regression tests after CSV
+  newline fix — 6 passed; Ruff on changed benchmark/test files — passed.
+  Frontend tests — 3 passed; TypeScript diagnostics — passed; production build
+  — passed; ESLint — 0 errors and 7 Fast Refresh warnings. Three-seed sample
+  benchmark — 12/12 policy runs completed; sample Nemotron rows used offline
+  deterministic fallback. `git diff --cached --check` — passed.
+- Manual verification: browser workflow verified the local console, scenario
+  reset and step; API health/readiness/reset/run smoke checks succeeded.
+- Risks/limitations: live Token Factory inference was not verified because
+  `NEBIUS_API_KEY` and a verified account-accessible NVIDIA model ID were
+  unavailable. Docker daemon was unavailable. No public demo/video was
+  published. No root licence was added because rights/compatibility were not
+  confirmed. No public deployment is claimed. npm audit reported 12
+  full-graph advisories (2 critical, 1 high, 9 moderate) and 5 moderate
+  production-only advisories after safe non-major updates. GridMind remains a
+  synthetic, single-session simulation; it does not control real systems.
+- Follow-up phase: configure and smoke-test a verified Nebius model; confirm
+  licensing rights; build and run the container; publish the demo video and,
+  if credentials/infrastructure permit, deploy the public demo. Then resolve
+  or explicitly accept remaining dependency advisories.
+- Merged commit: Not merged. PR #2 is open against `feat/gridmind-repurpose`;
+  implementation commit is `1359ed23efcc28867e69326c4db656ba0588263f`.
 
 ## Decisions
 

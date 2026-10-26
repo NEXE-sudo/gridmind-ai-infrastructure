@@ -6,3 +6,11 @@ __pycache__
 .git
 .gitignore
 node_modules
+.pytest_cache
+.ruff_cache
+.mypy_cache
+*.py[cod]
+*.egg-info
+agent-grid-view/dist
+benchmarks/latest
+benchmarks/local

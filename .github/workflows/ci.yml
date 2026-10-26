@@ -1,0 +1,57 @@
+name: GridMind CI
+
+on:
+  pull_request:
+  push:
+    branches:
+      - feat/gridmind-repurpose
+      - feat/gridmind-end-to-end-platform
+
+jobs:
+  python:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - uses: astral-sh/setup-uv@v5
+      - name: Install Python dependencies
+        working-directory: Scaler_hackathon
+        run: uv sync --locked --extra dev
+      - name: Run Python tests
+        working-directory: Scaler_hackathon
+        run: uv run --locked python -m pytest -q
+      - name: Lint GridMind Python modules
+        working-directory: Scaler_hackathon
+        run: >-
+          uv run --locked ruff check
+          server/datacenter_simulator.py server/workload_scheduler.py
+          server/metrics.py server/nemotron.py server/decision.py
+          server/benchmarks.py server/gridmind_app.py
+          tests/test_gridmind_simulator.py tests/test_gridmind_api.py
+          tests/test_gridmind_metrics.py tests/test_gridmind_benchmarks.py
+          tests/test_nemotron.py scripts/smoke_test_nemotron.py
+
+  dashboard:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: Scaler_hackathon/agent-grid-view
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: Scaler_hackathon/agent-grid-view/package-lock.json
+      - name: Install frontend dependencies
+        run: npm ci
+      - name: Test dashboard
+        run: npm test -- --run
+      - name: Lint dashboard
+        run: npm run lint
+      - name: Type-check dashboard
+        run: npx tsc -b --pretty false
+      - name: Build dashboard
+        run: npm run build

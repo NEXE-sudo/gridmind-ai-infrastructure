@@ -1,93 +1,81 @@
-"""Deterministic baselines and optional Nebius-hosted Nemotron proposals."""
+"""Deterministic schedulers and the optional constrained Nemotron policy."""
 from __future__ import annotations
 
-import json
-import logging
-import os
+from typing import Literal
 
 from .datacenter_simulator import DatacenterSimulator
 
-logger = logging.getLogger(__name__)
+PolicyName = Literal["fifo", "priority", "resource_aware"]
 
 
-def schedule(sim: DatacenterSimulator, policy: str = "resource_aware") -> dict[str,str]:
-    pending = [w for w in sim.workloads if w.status == "pending"]
+def schedule(
+    sim: DatacenterSimulator,
+    policy: PolicyName | str = "resource_aware",
+) -> dict[str, str]:
+    pending = [
+        workload
+        for workload in sim.workloads
+        if workload.status == "pending" and workload.submitted
+    ]
     if policy == "fifo":
-        pass
-    elif policy in {"priority","resource_aware"}:
-        pending.sort(key=lambda w:(-w.priority,w.deadline if w.deadline is not None else 10**9,
-                                   -(w.gpu_count*w.memory_gb) if policy=="resource_aware" else 0,w.id))
-    else: raise ValueError(f"Unknown scheduler policy: {policy}")
-    reserved = {n.id:[n.allocated_gpus,n.allocated_memory_gb] for n in sim.nodes}
-    power = sum(n.power_kw for n in sim.nodes)
-    out = {}
-    for w in pending:
-        options=[]
-        for n in sim.nodes:
-            g,m=reserved[n.id]
+        pending.sort(key=lambda workload: workload.submission_time)
+    elif policy == "priority":
+        pending.sort(
+            key=lambda workload: (
+                -workload.priority,
+                workload.deadline if workload.deadline is not None else 10**9,
+                workload.submission_time,
+                workload.id,
+            )
+        )
+    elif policy == "resource_aware":
+        pending.sort(
+            key=lambda workload: (
+                -workload.priority,
+                workload.deadline if workload.deadline is not None else 10**9,
+                -(workload.gpu_count * workload.memory_gb),
+                workload.submission_time,
+                workload.id,
+            )
+        )
+    else:
+        raise ValueError(f"Unknown scheduler policy: {policy}")
+
+    reserved = {
+        node.id: [node.allocated_gpus, node.allocated_memory_gb]
+        for node in sim.nodes
+    }
+    projected_power = sim.estimated_total_power_kw()
+    assignments: dict[str, str] = {}
+    for workload in pending:
+        options = []
+        for node in sim.nodes:
+            gpu_count, memory_gb = reserved[node.id]
+            projected_node_power = (
+                node.idle_kw + node.per_gpu_kw * (gpu_count + workload.gpu_count)
+            )
+            power_delta = node.per_gpu_kw * workload.gpu_count
             if (
-                n.available
-                and g + w.gpu_count <= n.gpu_count
-                and m + w.memory_gb <= n.memory_gb
-                and n.idle_kw + n.per_gpu_kw * (g + w.gpu_count) <= n.power_limit_kw
+                node.available
+                and gpu_count + workload.gpu_count <= node.gpu_count
+                and memory_gb + workload.memory_gb <= node.memory_gb
+                and projected_node_power <= node.power_limit_kw
+                and projected_power + power_delta <= sim.power_budget_kw
             ):
-                delta=n.per_gpu_kw*w.gpu_count
-                if power+delta<=sim.power_budget_kw:
-                    options.append(((g+w.gpu_count)/n.gpu_count,n.id,delta))
+                fill = (gpu_count + workload.gpu_count) / node.gpu_count
+                options.append((fill, node.id, power_delta))
         if options:
-            _,nid,delta=max(options,key=lambda x:(x[0],x[1]))
-            n=next(x for x in sim.nodes if x.id==nid)
-            reserved[nid][0]+=w.gpu_count; reserved[nid][1]+=w.memory_gb
-            power+=delta; out[w.id]=nid
-    return out
+            _, node_id, power_delta = max(options, key=lambda option: (option[0], option[1]))
+            node = next(node for node in sim.nodes if node.id == node_id)
+            reserved[node_id][0] += workload.gpu_count
+            reserved[node_id][1] += workload.memory_gb
+            projected_power += power_delta
+            assignments[workload.id] = node.id
+    return assignments
 
-def nemotron_propose(state: dict) -> dict[str,str]:
-    """Request a proposal; all placements are validated by the simulator."""
-    key=os.getenv("NEBIUS_API_KEY")
-    if not key:
-        logger.info("Nebius credentials are not configured; deterministic fallback will be used")
-        return {}
 
-    try:
-        from openai import OpenAI, OpenAIError
-    except ImportError as exc:
-        logger.warning(
-            "OpenAI client is unavailable (%s); deterministic fallback will be used",
-            type(exc).__name__,
-        )
-        return {}
+def nemotron_propose(state: dict) -> dict[str, str]:
+    """Compatibility helper for callers expecting a proposal mapping."""
+    from .nemotron import request_proposal
 
-    try:
-        client=OpenAI(api_key=key,base_url=os.getenv("NEBIUS_BASE_URL","https://api.tokenfactory.nebius.com/v1/"),timeout=20,max_retries=1)
-        data={"nodes":[{"id":n["id"],"free_gpus":n["gpu_count"]-n["allocated_gpus"],"free_memory_gb":n["memory_gb"]-n["allocated_memory_gb"],"available":n["available"]} for n in state["nodes"]],
-              "pending":[{"id":w["id"],"gpu_count":w["gpu_count"],"memory_gb":w["memory_gb"],"priority":w["priority"],"deadline":w["deadline"]} for w in state["workloads"] if w["status"]=="pending"],
-              "power_budget_kw":state["power_budget_kw"]}
-        response=client.chat.completions.create(model=os.getenv("GRIDMIND_MODEL","nvidia/NVIDIA-Nemotron-Nano-9B-v2"),temperature=0,max_tokens=500,
-            messages=[{"role":"system","content":"Return only JSON: {\"assignments\":{\"workload-id\":\"node-id\"}}. Do not invent IDs. Output is only a proposal."},
-                      {"role":"user","content":json.dumps(data)}])
-        content = response.choices[0].message.content
-        if not isinstance(content, str):
-            logger.warning("Nemotron returned an empty or non-text proposal; deterministic fallback will be used")
-            return {}
-        parsed = json.loads(content)
-        if (
-            not isinstance(parsed, dict)
-            or set(parsed) != {"assignments"}
-            or not isinstance(parsed["assignments"], dict)
-            or any(not isinstance(k, str) or not isinstance(v, str) for k, v in parsed["assignments"].items())
-        ):
-            logger.warning("Nemotron returned a malformed proposal; deterministic fallback will be used")
-            return {}
-        return parsed["assignments"]
-    except (
-        OpenAIError,
-        AttributeError,
-        IndexError,
-        TypeError,
-        ValueError,
-    ) as exc:
-        logger.warning(
-            "Nemotron proposal failed (%s); deterministic fallback will be used",
-            type(exc).__name__,
-        )
-        return {}
+    return request_proposal(state).assignments

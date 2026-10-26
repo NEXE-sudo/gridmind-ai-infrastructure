@@ -68,7 +68,7 @@ def test_node_and_power_limits_are_enforced():
 def test_completed_workload_consumes_energy_for_its_final_tick():
     sim = DatacenterSimulator()
     first = sim.apply_action({"infer-001": "gpu-a"})
-    assert first["metrics"]["estimated_energy_kwh"] == round(1.25 / 60, 5)
+    assert first["metrics"]["estimated_energy_kwh"] == round(1.25 / 60, 6)
     assert next(w for w in sim.workloads if w.id == "infer-001").remaining == 1
 
     second = sim.apply_action()
@@ -76,7 +76,7 @@ def test_completed_workload_consumes_energy_for_its_final_tick():
     assert workload.status == "completed"
     assert workload.completed_at == 2
     assert second["metrics"]["completed_workloads"] == 1
-    assert second["metrics"]["estimated_energy_kwh"] == round(2.5 / 60, 5)
+    assert second["metrics"]["estimated_energy_kwh"] == round(2.5 / 60, 6)
 
 
 def test_preemption_preserves_remaining_duration():
@@ -110,6 +110,7 @@ def test_simulated_node_failure_requeues_and_recovers_workload():
     assert failed["nodes"][0]["available"] is False
     assert failed["metrics"]["estimated_energy_kwh"] == 0
 
+    sim.failure_probability = 0
     recovered = sim.apply_action({"job": "only-node"})
     assert recovered["nodes"][0]["available"] is True
     assert workload.status == "running"

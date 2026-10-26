@@ -39,7 +39,7 @@ dev = [
 [project.scripts]
 # Legacy energy-grid server entry point.
 server = "server.app:main"
-gridmind-server = "server.gridmind_app:app"
+gridmind-server = "server.gridmind_app:main"
 
 [tool.setuptools]
 include-package-data = true

@@ -1,0 +1,161 @@
+export type PolicyId = "fifo" | "priority" | "resource_aware" | "nemotron";
+export type ScenarioId = "standard" | "workload_surge" | "node_failure" | "tight_deadlines";
+export type WorkloadStatus = "pending" | "running" | "completed" | "failed" | "cancelled";
+
+export interface NodeState {
+  id: string;
+  gpu_model: string;
+  gpu_count: number;
+  memory_gb: number;
+  allocated_gpus: number;
+  allocated_memory_gb: number;
+  workloads: string[];
+  available: boolean;
+  recover_at_step: number | null;
+  utilization: number;
+  memory_utilization: number;
+  estimated_power_kw: number;
+  power_limit_kw: number;
+}
+
+export interface WorkloadState {
+  id: string;
+  name: string;
+  gpu_count: number;
+  memory_gb: number;
+  duration: number;
+  priority: number;
+  deadline: number | null;
+  submission_time: number;
+  submitted: boolean;
+  status: WorkloadStatus;
+  node_id: string | null;
+  remaining: number;
+  started_at: number | null;
+  completed_at: number | null;
+}
+
+export interface OperationalMetrics {
+  completed_workloads: number;
+  failed_workloads: number;
+  cancelled_workloads: number;
+  unfinished_workloads: number;
+  queued_workloads: number;
+  running_workloads: number;
+  throughput_jobs_per_hour: number;
+  deadline_misses: number;
+  deadline_miss_rate: number;
+  sla_attainment_rate: number;
+  average_queue_wait_minutes: number | null;
+  p95_queue_wait_minutes: number | null;
+  average_turnaround_minutes: number | null;
+  current_gpu_utilization: number;
+  average_gpu_utilization: number;
+  current_memory_utilization: number;
+  estimated_power_kw: number;
+  power_budget_kw: number;
+  estimated_energy_kwh: number;
+  estimated_energy_cost: number;
+  rejected_actions: number;
+  resource_rejections: number;
+  power_budget_violations: number;
+  failed_nodes: number;
+  workloads_requeued: number;
+  ai_attempts: number;
+  ai_invocations: number;
+  ai_failures: number;
+  ai_fallbacks: number;
+  ai_invalid_proposals: number;
+  ai_latency_ms_mean: number | null;
+}
+
+export interface SimulationState {
+  step: number;
+  seed: number;
+  scenario?: ScenarioId;
+  power_budget_kw: number;
+  queue_depth: number;
+  nodes: NodeState[];
+  workloads: WorkloadState[];
+  metrics: OperationalMetrics;
+}
+
+export interface DecisionRecord {
+  step: number;
+  decision: string;
+  explanation: string;
+  proposal_status: string;
+  proposal_latency_ms?: number | null;
+  proposed_assignments: Record<string, string>;
+  executed_assignments: Record<string, string>;
+  proposal_validation_rejections: Array<{ workload_id: string; reason: string }>;
+  rejected_actions: Array<{ workload_id: string; reason: string }>;
+  fallback_used: boolean;
+}
+
+export interface RunRecord {
+  run_id: string;
+  kind: string;
+  policy: string;
+  seed: number;
+  status: string;
+  metrics: OperationalMetrics;
+  created_at?: string;
+  scenario_sha256?: string;
+}
+
+export interface BenchmarkRun {
+  run_id: string;
+  policy: PolicyId;
+  seed: number;
+  status: "completed" | "failed" | "incomplete";
+  steps_executed: number;
+  metrics: OperationalMetrics;
+}
+
+export interface BenchmarkResult {
+  created_at: string;
+  seeds: number[];
+  policies: PolicyId[];
+  live_model_enabled: boolean;
+  model_id: string | null;
+  runs: BenchmarkRun[];
+  comparison: Record<string, {
+    run_count: number;
+    successful_run_count: number;
+    failed_run_count: number;
+    incomplete_run_count: number;
+    metrics: Record<string, { mean: number | null; n: number }>;
+  }>;
+  paired_comparison_vs_resource_aware: Record<string, {
+    paired_successful_seed_count: number;
+    mean_policy_minus_resource_aware: Record<string, { mean_delta: number | null; n: number }>;
+  }>;
+}
+
+const API_BASE = import.meta.env.VITE_API_URL ?? "";
+
+export async function api<T>(path: string, init?: RequestInit): Promise<T> {
+  const response = await fetch(`${API_BASE}${path}`, {
+    ...init,
+    headers: {
+      ...(init?.body ? { "Content-Type": "application/json" } : {}),
+      ...init?.headers,
+    },
+  });
+  if (!response.ok) {
+    let message = `${response.status} ${response.statusText}`;
+    try {
+      const body = await response.json();
+      message = typeof body.detail === "string" ? body.detail : JSON.stringify(body.detail ?? body);
+    } catch {
+      // Keep the HTTP status as the useful fallback for non-JSON server errors.
+    }
+    throw new Error(message);
+  }
+  return response.json() as Promise<T>;
+}
+
+export const formatPercent = (value: number) => `${(value * 100).toFixed(1)}%`;
+export const formatNumber = (value: number | null | undefined, digits = 2) =>
+  value == null ? "—" : value.toLocaleString(undefined, { maximumFractionDigits: digits });
