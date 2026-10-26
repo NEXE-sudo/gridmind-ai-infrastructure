@@ -10,10 +10,15 @@ simulator validation -> state, metrics, rejected-action reasons.
 - server/datacenter_simulator.py: node/workload state, capacity checks, progress,
   estimated energy, and metrics.
 - server/workload_scheduler.py: FIFO, priority, resource-aware policies and
-  optional model proposal. The model path fails closed to deterministic fallback.
+  optional model proposal. Malformed proposals and proposals that fail
+  simulator-side capacity, node-power, or facility-power validation are
+  discarded before application. The API reports deterministic fallback use.
 - server/gridmind_app.py: isolated API entry point.
-- tests/test_gridmind_simulator.py: reproducibility, policy contract, invalid
-  actions, and metric invariants.
+- server/__init__.py: lazy legacy environment export, so importing the
+  independent GridMind app does not initialize OpenEnv.
+- tests/test_gridmind_simulator.py and tests/test_gridmind_api.py: seeded
+  reproducibility, policies, capacity/power checks, job lifecycle, transient
+  failures/recovery, request validation, and HTTP contract.
 
 ## API
 
@@ -25,6 +30,14 @@ simulator validation -> state, metrics, rejected-action reasons.
 | POST | /reset | Reset simulator, optionally with a seed |
 | POST | /step | Apply placements and advance one tick |
 | POST | /run | Run a policy for a bounded number of ticks |
+
+`/step` rejects malformed request shapes with HTTP 422 and reports infeasible
+placements in `rejected_actions`. `/run` uses a strict policy enum and a
+1–100-step bound. Its response includes per-step decision labels and whether
+the Nemotron path fell back. A node failure lasts for one simulated step,
+requeues affected work without discarding remaining runtime, and is visible in
+the returned state and event list. Energy is integrated from power during the
+simulated step, including the tick on which a job completes.
 
 ## Limitations
 

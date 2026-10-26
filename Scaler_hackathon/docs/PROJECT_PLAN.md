@@ -15,8 +15,8 @@ domain is validated.
 
 | Phase | Scope | Status | Exit criteria |
 |---|---|---|---|
-| P0 | Baseline, provenance, scope, working agreement | In progress | Existing project preserved; process documented |
-| P1 | Simulator, workload model, baseline schedulers, API, tests | In review | Targeted tests and API smoke test pass |
+| P0 | Baseline, provenance, scope, working agreement | Complete | Existing energy-grid source retained; separate GridMind entry point documented |
+| P1 | Simulator, workload model, baseline schedulers, API, tests | In review | Import, simulator, API, and full-suite checks recorded in PR log |
 | P2 | Deadline/SLA accounting, node failures, scenario configuration | Planned | Scenario tests and reproducible seeds |
 | P3 | Nebius Token Factory and NVIDIA Nemotron integration | Planned | Verified model ID, live call, latency/error evidence, fallback tested |
 | P4 | Benchmark harness across FIFO, heuristic, and model policies | Planned | Raw results, multiple seeds, variance and exact commands |
@@ -39,3 +39,14 @@ domain is validated.
 For every PR, record its link, phase, changed components, tests actually run,
 observed results, remaining risks, and next step. Never claim a test passed if
 the command was not run and the output inspected.
+
+### P1 foundation reliability corrections
+
+- Kept the legacy energy-grid implementation and entry point; package exports
+  now load OpenEnv-backed classes only when requested.
+- GridMind API input models reject unknown fields and coercible invalid types.
+- Added simulator-side placement validation for model proposals, node limits,
+  aggregate power, preemption, one-step node failures, recovery, and energy
+  accounting across job completion.
+- Validation state and exact results are recorded in `docs/PR_LOG.md` only
+  after commands have been run.

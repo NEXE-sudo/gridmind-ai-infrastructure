@@ -40,10 +40,16 @@ Split only at a real integration boundary or where review risk demands it.
 
 ## Local commands
 
-From the Scaler_hackathon directory:
+From the `NEXE-sudo/gridmind-ai-infrastructure` repository root (not from the
+original `Scaler_Energy-Manager` checkout):
 
-    python -m pytest tests/test_gridmind_simulator.py -q
-    uvicorn server.gridmind_app:app --reload --port 7861
+    cd Scaler_hackathon
+    uv sync --extra dev
+    uv run python -c "from server.gridmind_app import app; print(app.title)"
+    uv run python -m pytest tests/test_gridmind_simulator.py -q
+    uv run python -m pytest -q
+    uv run ruff check .
+    uv run uvicorn server.gridmind_app:app --reload --port 7861
 
 In a second terminal:
 
@@ -53,3 +59,8 @@ In a second terminal:
 
 The GridMind API is initially separate so the existing energy-grid application
 remains available while migration is in progress.
+
+The correct import root is `Scaler_hackathon/`. Running Uvicorn from the
+original repository's same-named directory will not find the GridMind modules
+from this repository. Use the isolated `NEXE-sudo/gridmind-ai-infrastructure`
+checkout and its own dependencies.
