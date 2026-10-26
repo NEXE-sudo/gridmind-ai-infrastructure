@@ -7,7 +7,7 @@ Update this file in every PR. Keep entries factual and evidence-based.
 | PR | Phase | Scope | Status / evidence |
 |---|---|---|---|
 | [#1](https://github.com/NEXE-sudo/gridmind-ai-infrastructure/pull/1) | P0–P1 | Plan, workflow, simulator, schedulers, guarded Nemotron proposal path, API, tests | Squash-merged 2026-10-26 as `5ebc47ca8395c67aacd754bbb66a824c42081727`; post-merge verification passed |
-| [#2](https://github.com/NEXE-sudo/gridmind-ai-infrastructure/pull/2) | P2–P7 | Complete GridMind simulation, metrics, paired-seed benchmark, dashboard, API, docs, and CI | Open; implementation commit `1359ed23efcc28867e69326c4db656ba0588263f`; verification and remaining release blockers below |
+| [#2](https://github.com/NEXE-sudo/gridmind-ai-infrastructure/pull/2) | P2–P7 | Complete GridMind simulation, metrics, paired-seed benchmark, dashboard, API, docs, and CI | Squash-merged 2026-10-26 as `966cfc6ae22cff284264f988e78b72ad2ac555f1`; post-merge CI and local verification passed |
 
 ## Entry template
 
@@ -58,8 +58,12 @@ Update this file in every PR. Keep entries factual and evidence-based.
   licensing rights; build and run the container; publish the demo video and,
   if credentials/infrastructure permit, deploy the public demo. Then resolve
   or explicitly accept remaining dependency advisories.
-- Merged commit: Not merged. PR #2 is open against `feat/gridmind-repurpose`;
-  implementation commit is `1359ed23efcc28867e69326c4db656ba0588263f`.
+- Merged commit: PR #2 squash-merged 2026-10-26 into `feat/gridmind-repurpose`
+  as `966cfc6ae22cff284264f988e78b72ad2ac555f1`. GitHub Actions on the merged
+  commit passed the complete Python test/lint and dashboard test/lint/type
+  check/build jobs. Local CI-equivalent Python tests — 133 passed; targeted
+  GridMind tests — 41 passed; dashboard tests — 3 passed; TypeScript checks
+  and production build — passed; ESLint — 0 errors and 7 Fast Refresh warnings.
 
 ## Decisions
 
