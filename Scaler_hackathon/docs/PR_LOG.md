@@ -6,7 +6,7 @@ Update this file in every PR. Keep entries factual and evidence-based.
 
 | PR | Phase | Scope | Status / evidence |
 |---|---|---|---|
-| [#1](https://github.com/NEXE-sudo/gridmind-ai-infrastructure/pull/1) | P0–P1 | Plan, workflow, simulator, schedulers, guarded Nemotron proposal path, API, tests | Fixes committed and pushed; GitHub reports no required checks/reviews; merge decision pending |
+| [#1](https://github.com/NEXE-sudo/gridmind-ai-infrastructure/pull/1) | P0–P1 | Plan, workflow, simulator, schedulers, guarded Nemotron proposal path, API, tests | Squash-merged 2026-10-26 as `5ebc47ca8395c67aacd754bbb66a824c42081727`; post-merge verification passed |
 
 ## Entry template
 
@@ -48,7 +48,17 @@ Update this file in every PR. Keep entries factual and evidence-based.
   findings are inherited in untouched legacy files.
 - Remaining limitations: no real Nebius request was made; no credentials or
   model catalogue verification were available. No public deployment/video is
-  part of this PR. Merge outcome is recorded only after GitHub confirms it.
+  part of this PR.
+- Merge and post-merge verification: GitHub confirmed PR #1 merged at
+  `2026-10-26T14:03:41Z` by squash as
+  `5ebc47ca8395c67aacd754bbb66a824c42081727`. On the synchronized
+  `feat/gridmind-repurpose` base, targeted simulator tests — 13 passed; full
+  pytest suite — 110 passed; changed-file Ruff — passed; documented import —
+  passed; TestClient `/health`, `/state`, `/policies`, `/reset`, `/step`, and
+  `/run` — HTTP 200; invalid policy — HTTP 422; `uv lock --check` — passed.
+  Base worktree was clean and matched `origin/feat/gridmind-repurpose`.
+  Feature branch was deleted locally after its tree matched the merged base;
+  GitHub had deleted the remote branch as part of the merge.
 
 ### Isolated migration
 GridMind gets a separate simulator and API entry point before energy-specific
