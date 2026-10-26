@@ -10,7 +10,7 @@ Update this file in every PR. Keep entries factual and evidence-based.
 | [#2](https://github.com/NEXE-sudo/gridmind-ai-infrastructure/pull/2) | P2–P7 | Complete GridMind simulation, metrics, paired-seed benchmark, dashboard, API, docs, and CI | Squash-merged 2026-10-26 as `966cfc6ae22cff284264f988e78b72ad2ac555f1`; post-merge CI and local verification passed |
 | [#3](https://github.com/NEXE-sudo/gridmind-ai-infrastructure/pull/3) | P2–P5 | Ten-scenario paired benchmark suite, simulator/API safeguards, dashboard scenario controls, audits, and submission docs | Squash-merged 2026-10-26 as `f96feea5203cfff41e04a92eecb64200d60186c8`; checks passed before merge. |
 | [#4](https://github.com/NEXE-sudo/gridmind-ai-infrastructure/pull/4) | P2–P5 | Fixed-horizon workload accounting, scheduling diagnostics, paired evaluation, reproducible evidence | Squash-merged 2026-10-26 as `661ee8dc0080c20cbe4f586c773724478258d727`; target-branch CI passed after merge. |
-| #5 | P7 | Scheduler-grounded placement evidence, bounded API decision history, and dashboard trace walkthrough | Implemented on `feat/gridmind-decision-traces`; local validation passed; PR submission/CI pending. |
+| [#5](https://github.com/NEXE-sudo/gridmind-ai-infrastructure/pull/5) | P7 | Scheduler-grounded placement evidence, bounded API decision history, and dashboard trace walkthrough | Open for review on `feat/gridmind-decision-traces`; local validation and GitHub Python/dashboard checks passed. |
 
 ## Entry template
 
@@ -212,7 +212,10 @@ Update this file in every PR. Keep entries factual and evidence-based.
   Candidate projections describe simulator bookkeeping and do not predict
   real infrastructure. Decision history is bounded and process-local.
 - PR status: implemented on `feat/gridmind-decision-traces` targeting
-  `feat/gridmind-repurpose`; submission and remote-check state pending.
+  `feat/gridmind-repurpose`; open and unmerged.
+- GitHub Actions: Python and dashboard jobs passed on PR head
+  `7bb9fcb64a3b1ade356bc43c0a29f09351f258ee` in run
+  [40375261470](https://github.com/NEXE-sudo/gridmind-ai-infrastructure/actions/runs/40375261470).
 
 ## Decisions
 
