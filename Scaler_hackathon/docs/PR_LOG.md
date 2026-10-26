@@ -8,6 +8,8 @@ Update this file in every PR. Keep entries factual and evidence-based.
 |---|---|---|---|
 | [#1](https://github.com/NEXE-sudo/gridmind-ai-infrastructure/pull/1) | P0–P1 | Plan, workflow, simulator, schedulers, guarded Nemotron proposal path, API, tests | Squash-merged 2026-10-26 as `5ebc47ca8395c67aacd754bbb66a824c42081727`; post-merge verification passed |
 | [#2](https://github.com/NEXE-sudo/gridmind-ai-infrastructure/pull/2) | P2–P7 | Complete GridMind simulation, metrics, paired-seed benchmark, dashboard, API, docs, and CI | Squash-merged 2026-10-26 as `966cfc6ae22cff284264f988e78b72ad2ac555f1`; post-merge CI and local verification passed |
+| [#3](https://github.com/NEXE-sudo/gridmind-ai-infrastructure/pull/3) | P2–P5 | Ten-scenario paired benchmark suite, simulator/API safeguards, dashboard scenario controls, audits, and submission docs | Open for review; not merged. Initial PR checks were pending at submission; local verification is recorded below. |
+| #4 | P2–P5 | Fixed-horizon workload accounting, scheduling diagnostics, paired evaluation, reproducible evidence | Prepared from `feat/gridmind-benchmark-validity` for `feat/gridmind-repurpose`; PR #3 remains open and unmodified. |
 
 ## Entry template
 
@@ -64,6 +66,110 @@ Update this file in every PR. Keep entries factual and evidence-based.
   check/build jobs. Local CI-equivalent Python tests — 133 passed; targeted
   GridMind tests — 41 passed; dashboard tests — 3 passed; TypeScript checks
   and production build — passed; ESLint — 0 errors and 7 Fast Refresh warnings.
+
+### PR #3 — Add multi-scenario GridMind benchmarks
+- Phase(s): P2–P5.
+- Problem solved: broaden the single-scenario evaluation into reproducible,
+  statistically paired multi-scenario experiments with explicit accounting
+  for incomplete runs, while improving simulator and API safeguards.
+- Behaviour delivered: ten versioned synthetic scenarios; workload and
+  exogenous failure pairing by seed; GPU-model compatibility; expanded
+  recovery, preemption, starvation, and infeasibility metrics; paired
+  bootstrap summaries; bounded suite API and CLI operations; scenario-aware
+  dashboard controls; dependency upgrades and audit gates.
+- Key files/components: `configs/scenarios.json`, `server/scenarios.py`,
+  `server/benchmarks.py`, `server/datacenter_simulator.py`,
+  `server/metrics.py`, `server/gridmind_app.py`, dashboard scenario controls,
+  and `.github/workflows/ci.yml`.
+- Tests run and exact result: Python suite — 144 passed; changed-file Ruff —
+  passed; dashboard tests — 3 passed; TypeScript check and production build —
+  passed; ESLint — 0 errors and 7 Fast Refresh warnings; `uv lock --check` —
+  passed. Full and production `npm audit` — 0 findings. Python 3.11 runtime
+  plus legacy test-extra `pip-audit` — 0 findings. The separate optional
+  `legacy-training` extra has 69 findings across `datasets`, `torch`, and
+  `transformers` and is excluded from the GridMind runtime/CI. GitHub Actions
+  Python and dashboard jobs passed on PR head `8796514`; this documentation
+  update will trigger a final PR check run.
+- Benchmark evidence: checked-in five-seed suite — 200 runs across 10
+  scenarios and 4 policies; 64 completed, 136 horizon-incomplete, 0 failed.
+  Repeated CSV and Markdown outputs were byte-identical. Results are
+  synthetic; offline Nemotron uses fallback and is not evidence of live
+  model inference or an AI performance gain.
+- Manual verification: no live Token Factory call, public deployment,
+  license grant, or demo video is claimed. Python 3.10's optional legacy
+  extra resolves a Pillow release with known advisories because the patched
+  release requires Python 3.11+.
+- Follow-up phase: obtain authorized credentials and a verified model ID for
+  live inference; confirm rights for a public license; publish the
+  under-three-minute demo; decide whether to upgrade or retire the historical
+  training extra.
+- PR status: opened as #3 from `feat/gridmind-scenario-lab-benchmarks` to
+  `feat/gridmind-repurpose`, initially at commit `7848f77`. Review only; not
+  merged.
+
+### PR #4 — Harden benchmark validity and stress diagnostics
+- Phase(s): P2–P5.
+- Problem solved: the prior benchmark labeled normal fixed-horizon executions
+  with unresolved jobs as run-level `incomplete`, left structurally
+  impossible requests pending, and counted explained contention as
+  starvation. This also discarded valid paired stress-scenario observations.
+- Behaviour delivered: `completed` now means a successful full-horizon
+  execution, independent of workload outcomes. Permanently infeasible jobs
+  become terminal with a reason; scheduling records actionable placement
+  blockers; recovery and arrivals precede decisions; deadline-missed jobs
+  remain eligible; requeues preserve remaining work; starvation excludes
+  explained waits. Workload denominators and mutually exclusive unresolved
+  outcome classifications are explicit. Every policy runs the same fixed
+  horizon and is paired only on matching workload and exogenous failure
+  trace hashes.
+- Benchmark evidence: the baseline five-seed suite regenerated its committed
+  CSV and Markdown byte-for-byte; substantive JSON records matched after
+  excluding intentional timestamps. Baseline run statuses were 64 completed,
+  136 incomplete, and 0 failed. The new 200-run primary suite has 200
+  completed fixed-horizon executions and 0 failed executions. Across its
+  2,720 workload instances: 2,262 completed, 38 operationally failed, 0
+  cancelled, 220 permanently infeasible, and 200 unresolved at the horizon.
+  Every scenario-policy comparison has five matched seed samples. The
+  separate uniformly doubled-horizon diagnostic is not mixed into the
+  primary results; some contention tails drain, while combined stress
+  remains partly unresolved and failure scenarios incur retry-exhaustion
+  outcomes. Nemotron uses deterministic offline fallback; no live inference
+  or AI superiority is claimed.
+- Tests run and exact result (commands run from `Scaler_hackathon/`, unless
+  noted; every command exited 0):
+  `UV_PROJECT_ENVIRONMENT=/tmp/gridmind-pr4-py311 uv run --locked --python
+  3.11 --extra dev --extra legacy python -m pytest -q` — 154 passed;
+  `UV_PROJECT_ENVIRONMENT=/tmp/gridmind-pr4-py311 uv run --locked --python
+  3.11 --extra dev --extra legacy ruff check server/datacenter_simulator.py
+  server/workload_scheduler.py server/metrics.py server/nemotron.py
+  server/decision.py server/benchmarks.py server/gridmind_app.py
+  server/scenarios.py tests/test_gridmind_simulator.py tests/test_gridmind_api.py
+  tests/test_gridmind_metrics.py tests/test_gridmind_benchmarks.py
+  tests/test_nemotron.py scripts/smoke_test_nemotron.py` — passed;
+  `uv lock --check` — passed;
+  `uv export --locked --format requirements-txt --no-dev --no-emit-project
+  --extra legacy -o /tmp/gridmind-pr4-requirements.txt && uvx --python 3.11
+  --from pip-audit pip-audit -r /tmp/gridmind-pr4-requirements.txt` — no
+  known vulnerabilities;
+  `UV_PROJECT_ENVIRONMENT=/tmp/gridmind-pr4-py311 uv run --locked --python
+  3.11 --extra dev --extra legacy python -m server.benchmarks --suite
+  configs/scenarios.json --seeds 1 --output-dir /tmp/gridmind-pr4-ci-smoke`
+  — 40/40 policy runs completed. From
+  `Scaler_hackathon/agent-grid-view/`: `npm test -- --run` — 3 passed;
+  `npx tsc -b --pretty false` — passed; `npm run build` — passed;
+  `npm run lint` — 0 errors and 7 Fast Refresh warnings;
+  `npm audit --audit-level=low` — 0 vulnerabilities. Full five-seed suite
+  CSV and Markdown were byte-identical across two generations; substantive
+  JSON matched after excluding `created_at`.
+- Risks/limitations: synthetic workloads, topology, power, failures, and
+  pricing; offline Nemotron fallback only; no live Token Factory call,
+  production cluster integration, public deployment, confirmed root license,
+  or published demo video. The 2x continuation is diagnostic evidence, not a
+  production drain guarantee. Seven existing ESLint Fast Refresh warnings
+  remain. `legacy-training` was not installed or audited.
+- PR status: prepared on `feat/gridmind-benchmark-validity` targeting
+  `feat/gridmind-repurpose`; PR #3 remains open and unmodified. GitHub checks
+  for PR #4 will be reported after submission.
 
 ## Decisions
 

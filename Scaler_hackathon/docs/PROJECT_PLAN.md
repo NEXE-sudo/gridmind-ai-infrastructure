@@ -16,11 +16,11 @@ code and is not the GridMind runtime.
 | Phase | Scope | Status | Evidence / exit criteria |
 |---|---|---|---|
 | P0 | Baseline, provenance, scope, working agreement | Complete in PR #1 | Separate GridMind entry point and legacy source preserved; baseline test result is in `docs/PR_LOG.md`. |
-| P1 | Simulator, lifecycle, constraints, baseline schedulers, API | Complete in this PR | Seeded heterogeneous scenarios, power/memory limits, arrivals, failure/recovery, preemption/requeue, API tests; full Python suite. |
-| P2 | Shared metrics, paired multi-seed experiments, export/report | Complete offline in this PR | CLI sample JSON/CSV/Markdown generated from actual code; definitions and pairing documented; failed/incomplete runs retained. |
+| P1 | Simulator, lifecycle, constraints, baseline schedulers, API | Implemented; lifecycle hardening in PR #4 | Explicit terminal structural infeasibility, recovery-before-scheduling, skip reasons, deadline semantics, and fixed-horizon execution status are regression-tested. |
+| P2 | Shared metrics, paired multi-seed experiments, export/report | Implemented offline; benchmark validity hardened in PR #4 | Ten scenarios × five seeds × four policies; workload/run status separated, full and feasible denominators, matched failure traces, explicit unresolved reasons, deterministic CSV/Markdown, and descriptive intervals. |
 | P3 | Nebius Token Factory and NVIDIA Nemotron | Implemented; external verification pending | Adapter, schema validation, bounded retry/timeout, fallback, mocked tests and smoke commands. Exact model ID and real inference require authorized credentials and a live smoke test. |
 | P4 | GridMind API and operations dashboard | Implemented for local single session | Scenario controls, node/workload state, policies, run/step/reset, benchmark/history/export; frontend tests and build. |
-| P5 | Reliability, security, CI, packaging | Local checks prepared; release validation pending | Unit/API/UI tests, CI workflow, lockfile, lint/build steps. CI has not run remotely yet; deployment and license remain blockers. |
+| P5 | Reliability, security, CI, packaging | PR #4 local verification complete; GitHub checks pending | Python 3.11 tests (154 passed), changed-file Ruff, frontend tests/type diagnostics/build/lint, locked dependency audits, lockfile check, and deterministic scenario-suite smoke passed. ESLint reports 7 Fast Refresh warnings. The unused legacy-training extra was not installed or audited; deployment and license remain blockers. |
 | P6 | Hackathon/demo submission package | Prepared, not submission complete | Setup, architecture, methodology, model boundary, threat/limitations, actual sample report, video script and checklist. Public video, license, live model evidence, and any public URL remain outstanding. |
 
 ## PR #1 foundation already delivered
@@ -34,11 +34,32 @@ checks are recorded in `docs/PR_LOG.md`.
 ## Comprehensive PR scope
 
 This PR strengthens workload transitions and scenario seeding; adds shared
-metrics, deterministic policy execution, repeatable multi-seed experiments,
-JSON/CSV/Markdown reporting, API experiment retrieval, scenario controls, and
-the GridMind console; and adds integration tests, CI, sample outputs, setup
-and submission documentation. It does not claim an actual Token Factory
-request, public deployment, open-source license grant, or published video.
+metrics, deterministic policy execution, a versioned ten-scenario catalogue,
+paired multi-seed experiments, bounded bootstrap uncertainty, JSON/CSV/Markdown
+reporting, API scenario and suite operations, dependency updates, and dashboard
+scenario controls. It also adds regression coverage, CI smoke execution,
+sample outputs, setup and submission documentation. It does not claim an
+actual Token Factory request, public deployment, open-source license grant,
+or published video.
+
+## PR #4 benchmark-validity hardening
+
+PR #4 starts from the verified `feat/gridmind-repurpose` base and carries the
+unmerged PR #3 work plus the review fixes; PR #3 remains open and untouched.
+The original fixed horizons and stress constraints are retained. A run marked
+`completed` now means the simulator executed its complete declared horizon,
+not that its workload queue drained. Structurally impossible work is
+terminally reasoned; pending workloads retain actionable scheduling
+diagnostics; completion, feasibility, deadline, failure, recovery, and
+horizon-incomplete denominators are explicit. All paired policies run the
+same complete horizon and are compared only when workload hashes and
+exogenous failure-trace hashes match.
+
+The before/after run-status counts and scenario-level workload outcomes are
+in [`BENCHMARK_METHODOLOGY.md`](./BENCHMARK_METHODOLOGY.md) and
+[`benchmarks/sample-suite/report.md`](../benchmarks/sample-suite/report.md).
+All reported values are synthetic. Offline Nemotron remains deterministic
+fallback, not evidence of live inference or AI superiority.
 
 ## Exit criteria for remaining work
 

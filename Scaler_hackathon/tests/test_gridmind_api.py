@@ -1,3 +1,5 @@
+from concurrent.futures import ThreadPoolExecutor
+
 import pytest
 from fastapi.testclient import TestClient
 
@@ -50,6 +52,8 @@ def test_reset_step_and_run_behaviour():
     assert step.json()["rejected_actions"] == []
     assert run.status_code == 200
     assert run.json()["steps_executed"] == 2
+    assert run.json()["termination_reason"] == "requested_horizon_reached"
+    assert run.json()["metrics"]["horizon_reached"] is True
     assert run.json()["history"][0]["decision"] == "resource_aware"
 
 
@@ -96,6 +100,62 @@ def test_benchmark_history_latest_and_csv_export():
     assert len(exported.text.splitlines()) == 3
 
 
+def test_scenario_catalog_and_scenario_benchmark_route():
+    with TestClient(gridmind_app.app) as client:
+        catalog = client.get("/scenarios")
+        benchmark = client.post(
+            "/benchmarks/run",
+            json={
+                "seeds": [4],
+                "policies": ["fifo", "resource_aware"],
+                "scenario": "infeasible_workloads",
+            },
+        )
+
+    assert catalog.status_code == 200
+    assert len(catalog.json()["scenarios"]) == 10
+    assert benchmark.status_code == 200
+    result = benchmark.json()
+    assert result["scenario_id"] == "infeasible_workloads"
+    assert all(run["scenario_id"] == "infeasible_workloads" for run in result["runs"])
+    run = result["runs"][0]
+    assert run["status"] == "completed"
+    assert run["metrics"]["permanently_infeasible_workloads"] == 3
+    assert sum(run["metrics"]["workload_status_counts"].values()) == (
+        run["metrics"]["total_workloads"]
+    )
+    assert run["termination_reason"] == "fixed_horizon_reached"
+
+
+def test_api_scenario_suite_is_bounded_and_exportable():
+    with TestClient(gridmind_app.app) as client:
+        result = client.post(
+            "/benchmarks/suite",
+            json={"seeds": [5], "policies": ["fifo", "resource_aware"]},
+        )
+        exported = client.get("/exports/latest.csv")
+
+    assert result.status_code == 200
+    assert result.json()["scenario_count"] == 10
+    assert len(result.json()["runs"]) == 20
+    assert exported.status_code == 200
+    assert "infeasible_workloads" in exported.text
+
+
+def test_mutating_requests_are_serialized_across_threads():
+    client = TestClient(gridmind_app.app)
+    with ThreadPoolExecutor(max_workers=6) as pool:
+        responses = list(
+            pool.map(
+                lambda _: client.post("/step", json={}),
+                range(6),
+            )
+        )
+    assert all(response.status_code == 200 for response in responses)
+    assert client.get("/state").json()["step"] == 6
+    client.close()
+
+
 def test_invalid_actions_and_request_schemas_return_422_or_rejections():
     with TestClient(gridmind_app.app) as client:
         rejected_action = client.post(
@@ -107,6 +167,19 @@ def test_invalid_actions_and_request_schemas_return_422_or_rejections():
         invalid_scenario = client.post("/reset", json={"scenario": "unknown"})
         invalid_policy = client.post("/run", json={"policy": "unknown"})
         invalid_limit = client.post("/run", json={"steps": 101})
+        invalid_seed_range = client.post("/reset", json={"seed": -1})
+        invalid_live_horizon = client.post(
+            "/run",
+            json={
+                "policy": "nemotron",
+                "steps": 11,
+                "use_live_model": True,
+            },
+        )
+        oversized_assignment = client.post(
+            "/step",
+            json={"assignments": {f"job-{index}": "missing" for index in range(101)}},
+        )
 
     assert rejected_action.status_code == 200
     assert rejected_action.json()["rejected_actions"] == [
@@ -119,6 +192,9 @@ def test_invalid_actions_and_request_schemas_return_422_or_rejections():
         invalid_scenario,
         invalid_policy,
         invalid_limit,
+        invalid_seed_range,
+        invalid_live_horizon,
+        oversized_assignment,
     ):
         assert response.status_code == 422
 

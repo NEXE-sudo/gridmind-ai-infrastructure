@@ -17,11 +17,12 @@ Open <http://127.0.0.1:7861/> or <http://127.0.0.1:7861/docs>.
 
 - `GET /health`, `GET /ready`, `GET /state`, `GET /nodes`, `GET /workloads`
 - `GET /policies`
-- `POST /reset` with `{"seed": 31, "scenario": "node_failure"}` (scenarios:
-  `standard`, `workload_surge`, `node_failure`, `tight_deadlines`)
+- `POST /reset` with `{"seed": 31, "scenario": "node_failure_recovery"}`.
+  The scenario catalogue is available from `GET /scenarios`.
 - `POST /step` with an assignments map and optional `preempt`/`cancel` lists
 - `POST /run` with a policy and 1–100 steps
 - `POST /benchmarks/run` with 1–5 unique seeds and policies
+- `POST /benchmarks/suite` with 1–2 seeds and selected policies
 - `GET /benchmarks/latest`, `GET /history?limit=20`,
   `GET /exports/latest.csv`
 
@@ -32,10 +33,13 @@ operation lock serializes simulation and benchmark mutations.
 ## Experiment command
 
 ```bash
-uv run python -m server.benchmarks \
-  --config configs/demo.json --seeds 1,2,3 \
-  --output-dir benchmarks/sample
+uv run --locked python -m server.benchmarks \
+  --suite configs/scenarios.json --seeds 1,2,3,4,5 \
+  --output-dir benchmarks/sample-suite
 ```
 
+Each policy uses the same materialized jobs and failure trace for a seed.
+`completed` means the fixed simulation horizon was reached, not that every job
+completed. Infeasible and unresolved jobs remain in reported denominators.
 The model is optional; without a verified model and server-side credentials,
 Nemotron uses a deterministic resource-aware fallback.

@@ -73,14 +73,18 @@ This environment has not produced or published a video.
       otherwise present the reproducible local demo without claiming a public
       deployment.
 
-## Material change from PR #1
+## Material change from the pre-existing GridMind release
 
-PR #1 established the isolated GridMind simulator, baseline schedulers, a
-guarded model-proposal path, FastAPI entry point, and initial tests while
-preserving the legacy energy-grid code. This comprehensive change expands the
-simulator with heterogeneous capacity, workload arrivals/lifecycle and
-failures; adds shared metrics and reproducible paired multi-seed experiments;
-completes API endpoints and scenario controls; replaces the stale legacy
-dashboard route with a GridMind operations console; adds offline UI/API
-coverage, CI, generated sample outputs, and end-to-end setup/submission
-documentation. No claim of live inference, license, or deployment is implied.
+The existing GridMind release (PR #2) introduced the data-centre simulator,
+baseline schedulers, guarded Nemotron proposal path, API, dashboard, and
+initial single-scenario benchmarks. This follow-up adds a versioned ten-case
+synthetic scenario lab, deterministic per-seed workload materialization and
+exogenous failure traces, GPU-model compatibility checks, recovery/preemption
+metrics, paired all-scenario benchmark reporting with bootstrap uncertainty,
+scenario-suite API support, and scenario-aware dashboard controls. It also
+adds regression coverage, a checked-in multi-scenario sample, bounded CI
+benchmark execution, and application dependency-audit gates. The historical
+training-only extra remains separate and has known advisories. These are
+material changes to simulator, evaluation, API, UI, and validation behavior;
+they are not a rebrand. No claim of live inference, license, or deployment is
+implied.

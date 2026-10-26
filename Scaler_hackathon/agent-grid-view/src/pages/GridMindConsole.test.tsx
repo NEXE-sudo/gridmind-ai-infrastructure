@@ -61,6 +61,7 @@ describe("GridMindConsole", () => {
               proposed_assignments: {},
               executed_assignments: {},
               proposal_validation_rejections: [],
+              scheduling_diagnostics: [],
               rejected_actions: [],
               fallback_used: false,
             }],
@@ -91,7 +92,7 @@ describe("GridMindConsole", () => {
     render(<GridMindConsole />);
     await screen.findByText("Infrastructure at a glance.");
     fireEvent.change(screen.getByLabelText("Scenario"), {
-      target: { value: "node_failure" },
+      target: { value: "node_failure_recovery" },
     });
     fireEvent.click(screen.getByRole("button", { name: /Reset/ }));
 
@@ -100,7 +101,7 @@ describe("GridMindConsole", () => {
       "/reset",
       expect.objectContaining({
         method: "POST",
-        body: JSON.stringify({ seed: 42, scenario: "node_failure" }),
+        body: JSON.stringify({ seed: 42, scenario: "node_failure_recovery" }),
       }),
     );
   });

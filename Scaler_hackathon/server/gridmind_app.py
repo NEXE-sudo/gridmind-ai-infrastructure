@@ -17,19 +17,41 @@ from fastapi.responses import Response
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, ConfigDict, Field, StrictBool, StrictInt, StrictStr
 
-from .benchmarks import load_config, make_seeded_scenario, run_experiments
+from .benchmarks import (
+    load_config,
+    make_seeded_scenario,
+    run_experiments,
+    run_scenario_suite,
+)
 from .datacenter_simulator import DatacenterSimulator
 from .decision import POLICIES, execute_policy_step
+from .scenarios import get_scenario_config, load_scenario_suite
 
 ROOT = Path(__file__).resolve().parents[1]
 DEFAULT_CONFIG = ROOT / "configs" / "demo.json"
 operation_lock = threading.Lock()
 recent_runs: list[dict[str, Any]] = []
 latest_benchmark: dict[str, Any] | None = None
-SCENARIOS = ("standard", "workload_surge", "node_failure", "tight_deadlines")
+LEGACY_SCENARIOS = ("standard", "workload_surge", "node_failure", "tight_deadlines")
+SCENARIO_IDS = tuple(
+    item["id"] for item in load_scenario_suite()["scenarios"]
+)
+SCENARIOS = LEGACY_SCENARIOS + SCENARIO_IDS
 
 
 def create_simulator(seed: int, scenario_name: str) -> DatacenterSimulator:
+    if scenario_name in SCENARIO_IDS:
+        config = get_scenario_config(scenario_name, seed)
+        materialized = make_seeded_scenario(config, seed)
+        return DatacenterSimulator(
+            seed=seed,
+            power_budget_kw=materialized["power_budget_kw"],
+            failure_probability=materialized["failure_probability"],
+            nodes=materialized["nodes"],
+            workloads=materialized["workloads"],
+            recovery_steps=materialized["recovery_steps"],
+            energy_price_per_kwh=materialized["energy_price_per_kwh"],
+        )
     config = load_config(DEFAULT_CONFIG)
     if scenario_name not in SCENARIOS:
         raise ValueError(f"scenario must be one of {', '.join(SCENARIOS)}")
@@ -60,7 +82,7 @@ def create_simulator(seed: int, scenario_name: str) -> DatacenterSimulator:
     )
 
 
-active_scenario = "standard"
+active_scenario = "balanced"
 sim = create_simulator(42, active_scenario)
 
 
@@ -83,7 +105,7 @@ app = FastAPI(
 class StepRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    assignments: dict[StrictStr, StrictStr] = Field(default_factory=dict)
+    assignments: dict[StrictStr, StrictStr] = Field(default_factory=dict, max_length=100)
     preempt: list[StrictStr] = Field(default_factory=list, max_length=100)
     cancel: list[StrictStr] = Field(default_factory=list, max_length=100)
 
@@ -91,8 +113,23 @@ class StepRequest(BaseModel):
 class ResetRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    seed: StrictInt | None = None
-    scenario: Literal["standard", "workload_surge", "node_failure", "tight_deadlines"] = "standard"
+    seed: StrictInt | None = Field(default=None, ge=0, le=2_147_483_647)
+    scenario: Literal[
+        "standard",
+        "workload_surge",
+        "node_failure",
+        "tight_deadlines",
+        "balanced",
+        "burst_arrivals",
+        "mixed_priority_deadlines",
+        "heterogeneous_gpu_types",
+        "gpu_memory_pressure",
+        "tight_power_budget",
+        "node_failure_recovery",
+        "short_long_contention",
+        "infeasible_workloads",
+        "combined_stress",
+    ] = "standard"
 
 
 class RunRequest(BaseModel):
@@ -110,7 +147,30 @@ class BenchmarkRequest(BaseModel):
     policies: list[Literal["fifo", "priority", "resource_aware", "nemotron"]] = Field(
         default_factory=lambda: list(POLICIES), min_length=1, max_length=4
     )
+    scenario: Literal[
+        "balanced",
+        "burst_arrivals",
+        "mixed_priority_deadlines",
+        "heterogeneous_gpu_types",
+        "gpu_memory_pressure",
+        "tight_power_budget",
+        "node_failure_recovery",
+        "short_long_contention",
+        "infeasible_workloads",
+        "combined_stress",
+    ] = "balanced"
     use_live_model: StrictBool = False
+
+
+class ScenarioSuiteRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    seeds: list[StrictInt] = Field(
+        default_factory=lambda: [1], min_length=1, max_length=2
+    )
+    policies: list[Literal["fifo", "priority", "resource_aware", "nemotron"]] = Field(
+        default_factory=lambda: list(POLICIES), min_length=1, max_length=4
+    )
 
 
 @app.get("/health")
@@ -163,6 +223,34 @@ def policies() -> dict[str, Any]:
     }
 
 
+@app.get("/scenarios")
+def scenarios() -> dict[str, Any]:
+    suite = load_scenario_suite()
+    return {
+        "suite_id": suite["suite_id"],
+        "suite_version": suite["suite_version"],
+        "synthetic": True,
+        "scenarios": [
+            {
+                key: item[key]
+                for key in (
+                    "id",
+                    "name",
+                    "description",
+                    "intended_stress",
+                    "topology_id",
+                    "power_budget_kw",
+                    "failure_probability",
+                    "recovery_steps",
+                    "max_steps",
+                    "horizon_rationale",
+                )
+            }
+            for item in suite["scenarios"]
+        ],
+    }
+
+
 @app.get("/workloads")
 def workloads() -> dict[str, Any]:
     with operation_lock:
@@ -196,6 +284,7 @@ def reset(req: ResetRequest) -> dict[str, Any]:
 @app.post("/step")
 def step(req: StepRequest) -> dict[str, Any]:
     with operation_lock:
+        sim.horizon_steps = None
         result = sim.apply_action(req.assignments, req.preempt, req.cancel)
         recent_runs.append(
             {
@@ -218,9 +307,12 @@ def step(req: StepRequest) -> dict[str, Any]:
 def run(req: RunRequest) -> dict[str, Any]:
     if req.use_live_model and req.policy != "nemotron":
         raise HTTPException(422, "use_live_model is only valid for policy=nemotron")
+    if req.use_live_model and req.steps > 10:
+        raise HTTPException(422, "Live inference is limited to ten simulation steps per request")
     with operation_lock:
         history = []
         run_id = str(uuid4())
+        sim.horizon_steps = sim.step_count + req.steps
         for _ in range(req.steps):
             result = execute_policy_step(
                 sim,
@@ -228,17 +320,13 @@ def run(req: RunRequest) -> dict[str, Any]:
                 use_live_model=req.use_live_model,
             )
             history.append(result)
-            if not any(
-                workload.status in {"pending", "running"}
-                for workload in sim.workloads
-            ):
-                break
         record = {
             "run_id": run_id,
             "kind": "simulation",
             "policy": req.policy,
             "seed": sim.seed,
             "status": "completed",
+            "termination_reason": "requested_horizon_reached",
             "steps_executed": len(history),
             "metrics": sim.state()["metrics"],
             "fallback_used": any(item["fallback_used"] for item in history),
@@ -269,9 +357,13 @@ def run_benchmark(req: BenchmarkRequest) -> dict[str, Any]:
             422,
             "Live inference requires NEBIUS_API_KEY and a catalogue-verified GRIDMIND_MODEL",
         )
+    if req.use_live_model and len(req.seeds) != 1:
+        raise HTTPException(422, "Live benchmark inference is limited to one seed")
     with operation_lock:
         try:
-            config = load_config(DEFAULT_CONFIG)
+            config = get_scenario_config(req.scenario, seed=0)
+            if req.use_live_model:
+                config["max_steps"] = min(config["max_steps"], 10)
             latest_benchmark = run_experiments(
                 config,
                 req.seeds,
@@ -297,18 +389,53 @@ def run_benchmark(req: BenchmarkRequest) -> dict[str, Any]:
         return latest_benchmark
 
 
+@app.post("/benchmarks/suite")
+def run_benchmark_suite(req: ScenarioSuiteRequest) -> dict[str, Any]:
+        global latest_benchmark
+        if len(set(req.seeds)) != len(req.seeds):
+            raise HTTPException(422, "seeds must be unique")
+        if len(set(req.policies)) != len(req.policies):
+            raise HTTPException(422, "policies must be unique")
+        with operation_lock:
+            try:
+                latest_benchmark = run_scenario_suite(
+                    req.seeds,
+                    policies=req.policies,
+                )
+            except ValueError as exc:
+                raise HTTPException(422, str(exc)) from exc
+            for record in latest_benchmark["runs"]:
+                recent_runs.append(
+                    {
+                        "run_id": record["run_id"],
+                        "kind": "scenario_suite",
+                        "policy": record["policy"],
+                        "scenario_id": record["scenario_id"],
+                        "seed": record["seed"],
+                        "status": record["status"],
+                        "metrics": record["metrics"],
+                        "scenario_sha256": record["scenario_sha256"],
+                        "created_at": latest_benchmark["created_at"],
+                    }
+                )
+            del recent_runs[:-50]
+            return latest_benchmark
+
+
 @app.get("/benchmarks/latest")
 def benchmark_latest() -> dict[str, Any]:
-    if latest_benchmark is None:
-        raise HTTPException(404, "No benchmark has been run in this process")
-    return latest_benchmark
+        with operation_lock:
+            if latest_benchmark is None:
+                raise HTTPException(404, "No benchmark has been run in this process")
+            return latest_benchmark
 
 
 @app.get("/history")
 def history(limit: int = 20) -> dict[str, Any]:
     if not 1 <= limit <= 50:
         raise HTTPException(422, "limit must be between 1 and 50")
-    return {"runs": list(reversed(recent_runs[-limit:]))}
+    with operation_lock:
+        return {"runs": list(reversed(recent_runs[-limit:]))}
 
 
 @app.get("/exports/latest.csv")
@@ -328,6 +455,7 @@ def export_latest_csv() -> Response:
     fields = [
         "run_id",
         "scenario_name",
+        "scenario_id",
         "scenario_sha256",
         "policy",
         "seed",
@@ -335,7 +463,7 @@ def export_latest_csv() -> Response:
         "steps_executed",
         *metric_fields,
     ]
-    writer = csv.DictWriter(output, fieldnames=fields)
+    writer = csv.DictWriter(output, fieldnames=fields, lineterminator="\n")
     writer.writeheader()
     for row in rows:
         writer.writerow(

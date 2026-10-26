@@ -5,77 +5,225 @@
 Run from `Scaler_hackathon/`:
 
 ```bash
-uv run python -m server.benchmarks \
-  --config configs/demo.json --seeds 1,2,3 \
-  --output-dir benchmarks/sample
+uv run --locked python -m server.benchmarks \
+  --suite configs/scenarios.json --seeds 1,2,3,4,5 \
+  --output-dir benchmarks/sample-suite
 ```
 
-The CLI emits `results.json` (full runs and histories), `runs.csv` (one row per
-policy/seed), and `report.md` (policy summaries and paired comparisons). The
-scenario SHA-256, seed, policy/simulator versions, live-model flag, status,
-steps, counters, per-step history, and resulting metrics are recorded. Re-run
-the command to regenerate the checked-in sample. `configs/demo.json` is
-synthetic; no hardware data or real operating tariff is used.
+This command emits `results.json`, `runs.csv`, and `report.md`. The checked-in
+sample covers ten synthetic scenarios, five seeds, and four policies (200
+scenario-seed-policy runs). Primary scenario horizons are fixed in suite
+version `1.1.0`; no policy receives a longer primary horizon.
 
-Each seed materializes one workload set and scenario hash, then every selected
-policy receives that exact scenario. Different seeds alter seeded arrival
-jitter and node-failure events. Runs are not stopped early on failure: they
-are retained as `failed` or `incomplete` with partial metrics where available.
-The CLI accepts 1–20 unique seeds; the API intentionally bounds requests to
-1–5 unique seeds and 1–4 policies.
+Each policy receives the same seed-materialized workloads, node topology,
+power budget, scenario hash, and complete exogenous node-failure trace. The
+scenario hash covers the scenario version, horizon, topology, workload
+parameters and arrivals, seed, and constraints. Each record also stores the
+simulator/policy versions, a policy identity/version hash, actual failure
+trace and trace hash, event trace, scheduling diagnostics, counters, final
+node/workload state, and metrics. Increment the relevant version when changing
+simulator or policy semantics. `created_at` fields in JSON are intentionally
+nondeterministic; substantive run data, CSV rows, and Markdown reports are
+deterministic for identical inputs.
+
+The suite is synthetic. It does not use cluster telemetry, facility power
+measurements, cloud prices, or hardware execution. Cost uses the configured
+synthetic energy price and is not a cloud bill.
+
+## Diagnosis of the previously checked-in sample
+
+The documented baseline command was run against the PR #3 checkout before
+editing PR #4. Its 200 runs regenerated `runs.csv` and `report.md` byte for
+byte against the committed copies. The substantive JSON run records also
+matched after excluding the intentional `created_at` fields.
+
+The old report counted 64 runs as `completed`, 136 as `incomplete`, and none
+as `failed`. This was not evidence that 136 simulations crashed. The episode
+runner called any run with a pending or running workload at the cutoff
+`incomplete`; it did not distinguish a normal, successfully reached fixed
+horizon from a simulation error or a workload outcome. The same status also
+excluded all of those horizon-limited runs from paired comparisons.
+
+Three scenario definitions intentionally contain structurally impossible
+jobs. In the old simulator these jobs stayed pending forever:
+
+* Heterogeneous GPU requirements: four 4-GPU, 64-GB L40S requests per seed do
+  not fit the configured 4-GPU L40S node's 48-GB memory.
+* GPU memory pressure: four 3-GPU, 88-GB requests per seed cannot fit either
+  the 2-GPU/96-GB A100 node or the 6-GPU/24-GB L40S node.
+* Infeasible workloads: three 12-GPU/512-GB requests per seed exceed every
+  node's GPU-count and memory envelope.
+
+Across four policies and five seeds, those are 220 structurally impossible
+workloads. Their presence alone marked all 60 runs in those three scenarios
+as `incomplete`. The remaining 76 old incomplete runs came from feasible work
+still waiting at the fixed cutoff: 20 tight-power, 16 node-failure, 20
+short/long-contention, and 20 combined-stress policy runs. These were
+horizon-limited outcomes, not simulator exceptions. Separately, the old
+starvation metric counted feasible pending jobs older than 30 minutes without
+checking whether active reservations, facility power, or node recovery
+explained the wait; short/long and combined-stress contention was therefore
+misreported as starvation.
+
+| Scenario | Old incomplete runs / 20 | Evidence-based diagnosis |
+|---|---:|---|
+| Balanced baseline | 0 | No unresolved jobs; ordinary fixed-horizon run. |
+| Burst arrivals | 0 | Jobs completed; deadline misses remained policy outcomes, not run failures. |
+| Mixed priorities and tight deadlines | 0 | Jobs completed; FIFO missed deadlines that other policies attained. |
+| Heterogeneous GPU requirements | 20 | Four permanently memory-infeasible L40S requests per seed and policy remained pending. |
+| GPU memory pressure | 20 | Four permanently infeasible 3-GPU/88-GB requests plus one feasible job still contending at the horizon per seed and policy. |
+| Tight facility power budget | 20 | Five feasible queue entries per run remained unresolved at the fixed cutoff; the old artifact did not record the scheduler's skip reason. |
+| Node failure and recovery | 16 | Retried failures plus feasible work pending through outages/recovery and contention; one seed per policy drained before the old early-stop condition. |
+| Short jobs versus long-running work | 20 | Feasible jobs remained pending behind long GPU reservations at the 90-step cutoff; the old starvation counter had no reservation-aware exclusion. |
+| Infeasible workloads | 20 | Three 12-GPU requests per seed exceeded the configured maximum of four GPUs per node and remained pending. |
+| Combined operational stress | 20 | A mixture of max-retry failures, node-recovery delays, power constraints, and resource contention remained unresolved. |
+
+The primary horizons have not been increased to make these outcomes disappear.
+Each scenario now records a horizon rationale in `configs/scenarios.json`.
+`short_long_contention` intentionally schedules three simultaneous 60-minute,
+four-GPU jobs onto two fitting nodes; even before later arrivals, its serialized
+service lower bound exceeds the 90-minute primary window.
+
+## Run status and workload lifecycle
+
+Run status describes simulator execution, not queue completion:
+
+* `completed` means the simulation executed the entire declared horizon
+  without an exception. It may contain failed, infeasible, or horizon-
+  unresolved workloads.
+* `failed` means a simulation/policy exception interrupted execution. The
+  record retains the exception type and any partial state, but failed runs
+  are excluded from successful-run aggregates and paired samples.
+* The legacy `incomplete` status is retained only when reading old records; a
+  normally reached horizon is no longer labeled incomplete.
+
+Every policy executes every step of the fixed horizon, even if the queue
+drains early. This keeps elapsed time, energy sampling, and the exogenous
+failure trace comparable across policies. A separately recorded
+`workloads_terminal_at_step` indicates when all workloads first became
+terminal, if they did. Infeasible requests become terminal `failed` workloads
+with a `permanent_infeasibility:<reason>` field once submitted. The simulator
+does not relax GPU, memory, model, node-power, or facility-power constraints
+to improve completion numbers.
+
+At each scheduling tick, the simulator records per-workload skip reasons and
+per-node details. Reasons distinguish GPU-model mismatch, GPU-count or memory
+insufficiency, node unavailability/recovery, active GPU/memory contention,
+same-decision reservations, node power, and facility power. The final workload
+state also carries its last reason and skip counts. Event traces preserve
+arrival, start, completion, failure, recovery, requeue, preemption, and
+cancellation transitions.
+
+Deadline misses and scheduling blockers are reported on separate axes. The
+primary unresolved-outcome classification uses this precedence: permanent
+infeasibility; terminal completed/failed/cancelled status; arrival after the
+horizon; deadline miss; node-failure recovery; temporary capacity contention;
+power-constrained waiting; explicit policy deferral; starvation/scheduler
+defect; then unexplained horizon incomplete. A pending job continues to be
+eligible after its deadline. For an unresolved deadline-missed job, the
+separate blocker counts and event/decision traces preserve whether power,
+resource reservations, or recovery caused the wait. A workload is starved
+only when it is structurally feasible, remains pending for at least 30
+minutes, and its latest scheduling result is an unexplained
+`scheduler_deferral`; resource- or policy-explained waits are not starvation.
 
 ## Metric definitions
 
-Every tick is one simulated minute. The shared implementation is
-`server/metrics.py`; the API and benchmark use the same definitions.
+The shared implementation is `server/metrics.py`; the API and benchmarks use
+the same calculations. A missing denominator/sample is `null`/`n/a`, not zero.
 
 | Metric | Definition, unit, and denominator |
 |---|---|
-| Throughput | Completed submitted jobs divided by elapsed simulated hours. |
-| Completion rate | Completed submitted jobs / submitted jobs. Jobs not yet arrived are excluded. |
-| Deadline miss rate | Submitted jobs whose completion is after deadline, plus unfinished jobs whose deadline has passed, / all submitted jobs. |
-| SLA attainment | Submitted jobs completed on time (or completed if they have no deadline) / all submitted jobs. Unfinished jobs do not attain SLA. |
-| Queue wait | `started_at - submission_time`, in minutes; mean/p50/p95 use completed jobs with a start timestamp. |
-| Turnaround | `completed_at - submission_time`, in minutes; mean/p50/p95 use completed jobs only. |
-| GPU/memory utilization | Allocated capacity / total configured capacity. Current is a point-in-time ratio; average is the arithmetic mean of recorded tick samples. |
-| Power | Sum of available node idle power and allocated-GPU power coefficients, in synthetic kW. Budget is checked before assignment; rejected over-budget actions are counted. |
-| Energy | Sum of tick power divided by 60, in synthetic kWh. Completion ticks are included. |
-| Estimated energy cost | Simulated kWh × configured illustrative energy price per kWh. This is not a provider invoice or cloud bill. |
-| Failures/requeues | Node failures and workload requeue/failure transitions from simulator counters. |
-| Rejected actions | Invalid or infeasible action count, with resource/power rejection counters reported separately. |
-| Fragmented GPU fraction | Free GPUs on nodes that cannot fit any currently queued workload, divided by total free GPU capacity. |
-| AI operations | Attempts, successful invocations, provider failures, fallbacks, invalid proposals, mean observed latency, and returned token usage. |
-| Model cost | Not estimated unless provider pricing/usage data is available; current synthetic runs report no model-cost value. |
+| Workload status counts | Counts of pending, running, completed, failed, and cancelled across every materialized workload; their sum equals `total_workloads`. Arrived/submitted and not-yet-arrived counts are also separate. |
+| Full-set completion rate | Completed workloads / all materialized scenario workloads. This denominator retains structurally infeasible and not-yet-arrived work. |
+| Submitted completion rate | Completed workloads / workloads that arrived by the measurement point. Reported separately; it never replaces the full-set rate. |
+| Feasible completion rate | Completed workloads / all statically placeable scenario workloads. Feasibility means some configured node can satisfy model, GPU count, memory, node power, and idle facility power. |
+| Infeasible workloads | Permanent-infeasibility terminal count, exact workload IDs, and reason counts. Structural feasibility over the full materialized set is also reported so a not-yet-arrived impossible job is not hidden. |
+| Horizon incomplete | Pending/running/not-yet-arrived workloads at the fixed cutoff, with both a mutually exclusive primary outcome classification and a separate last-blocker classification. |
+| Deadline misses | Late completions plus work unresolved at/after its deadline. `deadline_miss_rate` denominator is the count of deadlines elapsed by the horizon or completed late. |
+| Deadline attainment | On-time completed jobs / submitted workloads with deadlines. Post-deadline jobs remain eligible to complete, but cannot attain a missed deadline. |
+| SLA attainment | On-time completion for jobs with deadlines (or completion for jobs without deadlines) / submitted workloads. |
+| Throughput | Completed submitted jobs / elapsed simulated hours. All policies use the same fixed elapsed horizon. |
+| Queue wait / turnaround | `started_at - submission_time` and `completed_at - submission_time`, respectively, in minutes; completed workloads with timestamps only. |
+| Starvation | Feasible, still-pending workload with at least 30 minutes elapsed and no resource, power, recovery, or explicit policy explanation. |
+| Failures and recovery | Node failures, recoveries, workload operational failures, requeues, and preemptions are counted separately. Max-retry failures remain in the workload denominator. |
+| Resource/power rejections | Invalid assignment rejection counters; scheduler skips are recorded separately and are not counted as rejected actions. Power-limit rejections are distinct from actual power-budget violations. |
+| GPU/memory utilization | Allocated capacity / total configured capacity. Current is a point-in-time ratio; average is the arithmetic mean of tick samples. |
+| Power and energy | Available-node idle power plus allocated-GPU coefficients, in synthetic kW; energy is the sum of tick power / 60, in synthetic kWh. Completion ticks and the rest of the fixed horizon are included. |
+| Estimated energy cost | Synthetic kWh × configured illustrative energy rate. It is not a provider invoice or a cloud bill. |
+| Model operations | Attempts, actual invocations, failures, fallback count, observed latency, and returned token usage. No synthetic-run model cost is invented. |
 
-Per-job queue/turnaround percentiles use linear interpolation between sorted
-observations. An absent sample is `null`/`n/a`, never zero. Percentile values
-with very small sample counts are descriptive, not statistically reliable.
+Queue-wait and turnaround percentiles use linear interpolation between sorted
+observations. Bootstrap intervals are deterministic descriptive percentile
+intervals over paired independent scenario-seed samples. They are omitted
+below five valid pairs and must not be interpreted as statistical proof.
 
-## Multi-run summaries and fairness
+## Pairing, aggregation, and interpretation
 
-All run statuses remain visible. Metric means, sample standard deviation
-(`n - 1`, when at least two observations exist), p50, p95, and per-metric
-sample counts include available partial metrics; `run_count`,
-`successful_run_count`, `failed_run_count`, and `incomplete_run_count` are
-reported alongside. Paired deltas against `resource_aware` use only seeds
-where both records completed; excluded pairs remain visible in all-run
-summaries and are not silently presented as a complete AI comparison.
+Pairing keys are scenario hash and seed. A comparison includes only pairs
+where both executions reached the fixed horizon and both have identical
+exogenous failure-trace hashes. Each metric also reports its own valid `n`.
+Failed simulator executions and trace-mismatched pairs are counted and
+excluded, not relabeled successful. Aggregates report the successful-run
+sample count and explicit pooled workload totals; partial error-run state
+remains available in JSON/CSV. Scenario results are shown separately and are
+not collapsed into a cross-scenario policy ranking.
 
-An offline `nemotron` policy run exercises the policy's safe deterministic
-fallback, not model inference. Live inference requires explicit opt-in and
-configured credentials/model. A low-energy policy is not necessarily better:
-inspect throughput, completion, SLA, deadline misses, and unfinished work
-together. No synthetic result establishes performance on real infrastructure.
+The offline `nemotron` policy is deterministic resource-aware fallback and
+does not call a model. Its benchmark rows are explicitly marked
+`deterministic_fallback`. They are not evidence of live NVIDIA/Nebius inference
+or AI superiority. Live model measurements require a separately verified
+request and a fair comparison.
 
-## Checked-in sample
+## Current sample outcome
 
-`benchmarks/sample/` was generated by the command above with seeds 1, 2, and
-3 (12 runs: four policies × three seeds). In this sample, all runs completed;
-the three baseline policies and offline Nemotron fallback each completed all
-eight jobs per seed, and every synthetic scenario reported full SLA
-attainment. Resource-aware and the offline fallback produced identical
-outcomes because they execute the same fallback. FIFO and priority exhibit
-small scenario-dependent differences in throughput/energy. The Nemotron rows
-record fallback counts and no provider invocation, model latency, token use,
-or cost. These small, synthetic sample results are evidence of reproducible
-execution only, not a performance claim.
+The current five-seed sample contains 200 successful fixed-horizon simulation
+executions and no failed/incomplete executions. That does **not** mean all
+2,720 workload instances completed. Across the successful policy runs there
+are 2,262 completed, 38 operationally failed, 0 cancelled, 220 permanently
+infeasible, and 200 horizon-unresolved workload instances. These status
+categories are mutually exclusive in the final workload snapshot. The
+checked-in per-scenario report contains counts and denominators for every
+policy:
+
+* 220 permanently infeasible workload instances were terminally classified
+  across the four policies instead of remaining pending.
+* 200 workloads remained unresolved at their primary horizons. All are
+  explicitly classified as deadline misses or horizon-incomplete, with their
+  last actionable blocker reported separately. The outstanding cases are
+  concentrated in GPU-memory pressure (20 across policies), tight facility
+  power (20), node failure/recovery (18), short/long contention (64), and
+  combined stress (78); other scenarios have none. The per-policy report
+  distinguishes running work at the horizon, node recovery, power waiting,
+  temporary capacity contention, and same-decision reservations.
+* All four policies have zero starvation classifications under the explicit
+  30-minute unexplained-deferral rule.
+* Completed/deadline outcomes differ by scenario. For example, the burst
+  scenario has 80/90 on-time completions under FIFO and 81/90 under the other
+  policies; mixed-priority FIFO has 68/70 on-time while the other policies
+  attain 70/70. These are small-sample synthetic observations, not evidence
+  of live-model benefit; Nemotron rows are offline fallback.
+
+### Separate 2x-horizon diagnostic continuation
+
+A separate diagnostic used the same five seeds, materialized workloads,
+topologies, and policies, with every scenario horizon uniformly doubled.
+These outcomes are diagnostic only and are not included in the primary sample,
+comparisons, or artifacts. In that continuation, the 20 GPU-memory-pressure,
+20 tight-power, and 64 short/long unresolved primary workload instances
+drained by the doubled horizon. Node-failure/recovery also drained its 18
+primary unresolved instances, while additional time exposed retry-exhaustion
+failures. Combined stress remained unresolved: 1 FIFO workload and 6 per
+non-FIFO policy across the five seeds, with recorded blockers including node
+recovery, power waiting, running work, reservations, and temporary capacity
+contention. This is evidence that some primary outcomes are horizon-limited,
+not proof that all stress cases will drain or that any policy is operationally
+safe.
+
+The `results.json` artifact includes per-run workload states, event traces,
+hashes, and detailed diagnostics. `runs.csv` contains one row per run and
+metrics; `report.md` keeps scenario-level summaries and paired sample sizes
+separate. The JSON timestamps are intentionally excluded from byte comparisons;
+the committed CSV and Markdown outputs are verified byte-for-byte across two
+identical generations, and substantive JSON data also matched after excluding
+only those timestamps.

@@ -9,8 +9,8 @@ and experiment workbench, not a physical infrastructure controller.
 From this directory:
 
 ```bash
-uv sync --locked --extra dev
-uv run python -m pytest -q
+uv sync --locked --extra dev --extra legacy
+uv run --locked --extra dev --extra legacy python -m pytest -q
 cd agent-grid-view
 npm ci
 npm test -- --run
@@ -33,14 +33,20 @@ validation as all other actions, and unavailable/failed inference falls back
 to resource-aware scheduling.
 
 ```bash
-uv run python -m server.benchmarks \
-  --config configs/demo.json --seeds 1,2,3 \
-  --output-dir benchmarks/sample
+uv run --locked python -m server.benchmarks \
+  --suite configs/scenarios.json --seeds 1,2,3,4,5 \
+  --output-dir benchmarks/sample-suite
 ```
 
-The command writes `results.json`, `runs.csv`, and `report.md`. The checked-in
-sample is generated from the synthetic demo config; the Nemotron policy in
-that sample ran offline and used its fallback.
+The suite runs every selected policy against the same seeded workloads and
+complete exogenous failure trace for each scenario. `completed` means the
+simulation reached its fixed horizon; it does not mean that every workload
+finished. Reports retain all materialized jobs in the full-set denominator,
+show feasible-workload completion separately, and distinguish permanent
+infeasibility from unresolved horizon outcomes and their scheduler blockers.
+Five seeds permit a descriptive paired bootstrap interval, not a reliable
+general performance claim. The command writes `results.json`, `runs.csv`, and
+`report.md`. Nemotron is offline in this sample and uses deterministic fallback.
 
 ## Optional Token Factory inference
 
@@ -63,6 +69,15 @@ claimed until that smoke test succeeds with a verified model ID.
 The legacy electricity-grid implementation and its existing tests remain in
 the repository. See the repository-root README for repository history and
 current submission blockers.
+
+The GridMind runtime itself uses the default project dependencies. The
+`legacy` extra is only needed for the retained OpenEnv-backed energy-grid
+modules and full historical test suite. Python 3.11+ is recommended when
+installing that extra; on Python 3.10, upstream Gradio/Pillow compatibility
+currently requires a Pillow release with known advisories. Do not expose the
+legacy UI or install that extra in a production GridMind runtime. The
+`legacy-training` extra is also historical, has known dependency advisories,
+and is not needed to run GridMind.
 
 ## Container
 

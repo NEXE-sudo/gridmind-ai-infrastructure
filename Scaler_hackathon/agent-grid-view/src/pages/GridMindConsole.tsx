@@ -36,10 +36,16 @@ const POLICIES: Array<{ id: PolicyId; label: string }> = [
 ];
 
 const SCENARIOS = [
-  { id: "standard", label: "Standard arrivals" },
-  { id: "workload_surge", label: "Workload surge" },
-  { id: "node_failure", label: "Node failures" },
-  { id: "tight_deadlines", label: "Tight deadlines" },
+  { id: "balanced", label: "Balanced baseline" },
+  { id: "burst_arrivals", label: "Burst arrivals" },
+  { id: "mixed_priority_deadlines", label: "Mixed priorities / deadlines" },
+  { id: "heterogeneous_gpu_types", label: "GPU types / capacity" },
+  { id: "gpu_memory_pressure", label: "GPU memory pressure" },
+  { id: "tight_power_budget", label: "Tight power budget" },
+  { id: "node_failure_recovery", label: "Node failure / recovery" },
+  { id: "short_long_contention", label: "Short / long job contention" },
+  { id: "infeasible_workloads", label: "Infeasible requests" },
+  { id: "combined_stress", label: "Combined stress" },
 ] satisfies Array<{ id: ScenarioId; label: string }>;
 
 const statusClass: Record<string, string> = {
@@ -90,6 +96,10 @@ function getMetric(
   return summary?.metrics[metric]?.mean ?? null;
 }
 
+function formatRate(value: number | null | undefined): string {
+  return value == null ? "—" : formatPercent(value);
+}
+
 export default function GridMindConsole() {
   const [state, setState] = useState<SimulationState | null>(null);
   const [ready, setReady] = useState<{ model_configured: boolean; state_scope: string } | null>(null);
@@ -97,7 +107,7 @@ export default function GridMindConsole() {
   const [benchmark, setBenchmark] = useState<BenchmarkResult | null>(null);
   const [decisionLog, setDecisionLog] = useState<DecisionRecord[]>([]);
   const [policy, setPolicy] = useState<PolicyId>("resource_aware");
-  const [scenario, setScenario] = useState<ScenarioId>("standard");
+  const [scenario, setScenario] = useState<ScenarioId>("balanced");
   const [seed, setSeed] = useState(42);
   const [steps, setSteps] = useState(10);
   const [benchmarkSeeds, setBenchmarkSeeds] = useState("1,2,3");
@@ -115,7 +125,7 @@ export default function GridMindConsole() {
       api<{ runs: RunRecord[] }>("/history?limit=12"),
     ]);
     setState(nextState);
-    setScenario(nextState.scenario ?? "standard");
+    setScenario(nextState.scenario ?? "balanced");
     setReady(nextReady);
     setHistory(nextHistory.runs);
   }, []);
@@ -130,7 +140,7 @@ export default function GridMindConsole() {
       .then(([nextState, nextReady, nextHistory]) => {
         if (!active) return;
         setState(nextState);
-        setScenario(nextState.scenario ?? "standard");
+        setScenario(nextState.scenario ?? "balanced");
         setReady(nextReady);
         setHistory(nextHistory.runs);
       })
@@ -217,6 +227,7 @@ export default function GridMindConsole() {
           body: JSON.stringify({
             seeds: parsedSeeds,
             policies: POLICIES.map((item) => item.id),
+            scenario,
             use_live_model: useLiveModel,
           }),
         });
@@ -244,7 +255,7 @@ export default function GridMindConsole() {
       <header className="topbar">
         <a className="brand" href="#overview" aria-label="GridMind operations home">
           <span className="brand-mark"><Cpu size={20} /></span>
-          <span>GRIDMIND <small>INFRASTRUCTURE CONTROL</small></span>
+          <span>GRIDMIND <small>OPERATIONS SIMULATOR</small></span>
         </a>
         <nav className="top-nav" aria-label="Main navigation">
           <a href="#overview">Overview</a>
@@ -301,10 +312,10 @@ export default function GridMindConsole() {
               <MetricCard label="GPU CAPACITY" value={`${state.nodes.reduce((sum, node) => sum + node.allocated_gpus, 0)} / ${state.nodes.reduce((sum, node) => sum + node.gpu_count, 0)}`} detail={`${formatPercent(metrics?.current_gpu_utilization ?? 0)} current utilisation`} icon={Cpu} />
               <MetricCard label="QUEUE DEPTH" value={formatNumber(metrics?.queued_workloads ?? state.queue_depth, 0)} detail={`${formatNumber(metrics?.running_workloads, 0)} active workloads`} icon={Activity} />
               <MetricCard label="POWER DRAW" value={`${formatNumber(metrics?.estimated_power_kw)} kW`} detail={`of ${formatNumber(metrics?.power_budget_kw)} kW facility budget`} icon={Zap} tone={(metrics?.estimated_power_kw ?? 0) > (metrics?.power_budget_kw ?? 1) * 0.85 ? "warning" : "default"} />
-              <MetricCard label="COMPLETED" value={formatNumber(metrics?.completed_workloads, 0)} detail={`${formatNumber(metrics?.failed_workloads, 0)} failed · ${formatNumber(metrics?.unfinished_workloads, 0)} unfinished`} icon={Check} tone="good" />
-              <MetricCard label="DEADLINE MISSES" value={formatNumber(metrics?.deadline_misses, 0)} detail={`${formatPercent(metrics?.deadline_miss_rate ?? 0)} of submitted jobs`} icon={AlertTriangle} tone={(metrics?.deadline_misses ?? 0) > 0 ? "warning" : "good"} />
+              <MetricCard label="COMPLETED" value={formatNumber(metrics?.completed_workloads, 0)} detail={`${formatNumber(metrics?.permanently_infeasible_workloads, 0)} infeasible · ${formatNumber(metrics?.horizon_incomplete_workloads ?? metrics?.unfinished_workloads, 0)} unresolved`} icon={Check} tone="good" />
+              <MetricCard label="DEADLINE MISSES" value={formatNumber(metrics?.deadline_misses, 0)} detail={`${formatRate(metrics?.deadline_miss_rate)} of ${formatNumber(metrics?.deadline_miss_denominator, 0)} due`} icon={AlertTriangle} tone={(metrics?.deadline_misses ?? 0) > 0 ? "warning" : "good"} />
               <MetricCard label="EST. ENERGY" value={`${formatNumber(metrics?.estimated_energy_kwh, 4)} kWh`} detail={`$${formatNumber(metrics?.estimated_energy_cost, 4)} at configured tariff`} icon={Gauge} />
-              <MetricCard label="CONSTRAINT REJECTIONS" value={formatNumber(metrics?.rejected_actions, 0)} detail={`${formatNumber(metrics?.resource_rejections, 0)} capacity · ${formatNumber(metrics?.power_budget_violations, 0)} power`} icon={ShieldCheck} tone={(metrics?.rejected_actions ?? 0) > 0 ? "warning" : "default"} />
+              <MetricCard label="CONSTRAINT REJECTIONS" value={formatNumber(metrics?.rejected_actions, 0)} detail={`${formatNumber(metrics?.resource_rejections, 0)} constraint rejections · ${formatNumber((metrics?.node_power_rejections ?? 0) + (metrics?.facility_power_rejections ?? 0), 0)} are power-related`} icon={ShieldCheck} tone={(metrics?.rejected_actions ?? 0) > 0 ? "warning" : "default"} />
               <MetricCard label="INFRA EVENTS" value={formatNumber(metrics?.failed_nodes, 0)} detail={`${formatNumber(metrics?.workloads_requeued, 0)} workloads requeued`} icon={Server} tone={(metrics?.failed_nodes ?? 0) > 0 ? "warning" : "default"} />
               <MetricCard label="AI FALLBACKS" value={formatNumber(metrics?.ai_fallbacks, 0)} detail={`${formatNumber(metrics?.ai_invocations, 0)} live calls · ${formatNumber(metrics?.ai_failures, 0)} failures · ${formatNumber(metrics?.ai_invalid_proposals, 0)} invalid`} icon={ShieldCheck} />
               <MetricCard label="AI LATENCY" value={metrics?.ai_latency_ms_mean == null ? "—" : `${formatNumber(metrics.ai_latency_ms_mean, 1)} ms`} detail="Mean observed live request latency" icon={Activity} />
@@ -412,6 +423,9 @@ export default function GridMindConsole() {
                         {decision.proposal_validation_rejections.length > 0 && (
                           <p className="rejection-note"><AlertTriangle size={13} /> Proposal rejected by simulator checks: {decision.proposal_validation_rejections.map((item) => `${item.workload_id} (${item.reason})`).join(", ")}</p>
                         )}
+                        {decision.scheduling_diagnostics.length > 0 && (
+                          <p className="rejection-note">Deferred: {decision.scheduling_diagnostics.map((item) => `${item.workload_id} (${item.reason})`).join(", ")}</p>
+                        )}
                       </div>
                     ))}
                   </div>
@@ -429,13 +443,14 @@ export default function GridMindConsole() {
               </div>
               <div className="table-scroll">
                 <table className="workload-table">
-                  <thead><tr><th>Workload</th><th>Priority</th><th>Request</th><th>Deadline</th><th>Progress</th><th>Node</th><th>Status</th></tr></thead>
+                  <thead><tr><th>Workload</th><th>Priority</th><th>Request</th><th>GPU type</th><th>Deadline</th><th>Progress</th><th>Node</th><th>Status</th></tr></thead>
                   <tbody>
                     {state.workloads.map((workload) => (
                       <tr key={workload.id}>
-                        <td><strong>{workload.name}</strong><small>{workload.id} · arrives at t+{workload.submission_time}</small></td>
+                        <td><strong>{workload.name}</strong><small>{workload.id} · arrives at t+{workload.submission_time}</small>{(workload.failure_reason || workload.last_scheduling_reason) && <small>Reason: {workload.failure_reason ?? workload.last_scheduling_reason}</small>}</td>
                         <td><span className={`priority priority-${workload.priority}`}>P{workload.priority}</span></td>
                         <td>{workload.gpu_count} GPU · {workload.memory_gb} GB</td>
+                        <td>{workload.required_gpu_model ?? "Any compatible"}</td>
                         <td>{workload.deadline == null ? "—" : `t+${workload.deadline}`}</td>
                         <td>{workload.duration - workload.remaining} / {workload.duration} min</td>
                         <td>{workload.node_id ?? "—"}</td>
@@ -465,7 +480,7 @@ export default function GridMindConsole() {
                   </div>
                   <div className="table-scroll">
                     <table className="benchmark-table">
-                      <thead><tr><th>Policy</th><th>Successful / total</th><th>Throughput<br /><small>jobs/hour</small></th><th>Completion</th><th>SLA attainment</th><th>Deadline misses</th><th>Queue wait<br /><small>mean min</small></th><th>Energy<br /><small>estimated kWh</small></th><th>Cost<br /><small>estimated</small></th><th>AI latency<br /><small>mean ms</small></th><th>Fallbacks</th><th>Rejections</th></tr></thead>
+                      <thead><tr><th>Policy</th><th>Horizon executions / total</th><th>Throughput<br /><small>jobs/hour</small></th><th>All-workload completion</th><th>SLA attainment</th><th>Deadline misses</th><th>Queue wait<br /><small>mean min</small></th><th>Energy<br /><small>estimated kWh</small></th><th>Cost<br /><small>estimated</small></th><th>AI latency<br /><small>mean ms</small></th><th>Fallbacks</th><th>Rejections</th></tr></thead>
                       <tbody>
                         {benchmark.policies.map((id) => {
                           const summary = benchmark.comparison[id];
@@ -474,12 +489,12 @@ export default function GridMindConsole() {
                               <td><span className="policy-name">{POLICIES.find((item) => item.id === id)?.label ?? id}</span></td>
                               <td>
                                 {summary?.successful_run_count ?? 0} / {summary?.run_count ?? 0}
-                                <small>{summary?.failed_run_count ?? 0} failed · {summary?.incomplete_run_count ?? 0} incomplete</small>
+                                <small>{summary?.failed_run_count ?? 0} simulation errors</small>
                               </td>
                               <td>{formatNumber(getMetric(summary, "throughput_jobs_per_hour"))}</td>
-                              <td>{formatPercent(getMetric(summary, "completion_rate") ?? 0)}</td>
-                              <td><span className="benchmark-value">{formatPercent(getMetric(summary, "sla_attainment_rate") ?? 0)}</span></td>
-                              <td>{formatPercent(getMetric(summary, "deadline_miss_rate") ?? 0)}</td>
+                              <td>{formatRate(getMetric(summary, "completion_rate_scenario_denominator"))}<small>{summary?.workload_totals.completed_workloads ?? 0} / {summary?.workload_totals.total_workloads ?? 0} jobs · {summary?.workload_totals.permanently_infeasible_workloads ?? 0} infeasible</small></td>
+                              <td><span className="benchmark-value">{formatRate(getMetric(summary, "sla_attainment_rate"))}</span></td>
+                              <td>{formatRate(getMetric(summary, "deadline_miss_rate"))}</td>
                               <td>{formatNumber(getMetric(summary, "average_queue_wait_minutes"))}</td>
                               <td>{formatNumber(getMetric(summary, "estimated_energy_kwh"), 4)}</td>
                               <td>${formatNumber(getMetric(summary, "estimated_energy_cost"), 4)}</td>
@@ -493,18 +508,18 @@ export default function GridMindConsole() {
                     </table>
                   </div>
                   <div className="paired-comparison">
-                    <h3>Mean difference vs resource-aware on matched successful seeds</h3>
+                    <h3>Mean difference vs resource-aware on matched horizon executions</h3>
                     <div className="paired-grid">
                       {Object.entries(benchmark.paired_comparison_vs_resource_aware).map(([id, comparison]) => (
                         <div className="paired-card" key={id}>
                           <span>{POLICIES.find((item) => item.id === id)?.label ?? id}</span>
-                          <strong>{comparison.paired_successful_seed_count} paired seed{comparison.paired_successful_seed_count === 1 ? "" : "s"}</strong>
-                          <small>Throughput Δ {formatNumber(comparison.mean_policy_minus_resource_aware.throughput_jobs_per_hour.mean_delta)} jobs/h · SLA Δ {formatPercent(comparison.mean_policy_minus_resource_aware.sla_attainment_rate.mean_delta ?? 0)}</small>
+                          <strong>{comparison.paired_successful_run_count} paired run{comparison.paired_successful_run_count === 1 ? "" : "s"}</strong>
+                          <small>Throughput Δ {formatNumber(comparison.mean_policy_minus_resource_aware.throughput_jobs_per_hour.mean_delta)} jobs/h · deadline attainment Δ {formatRate(comparison.mean_policy_minus_resource_aware.deadline_attainment_rate.mean_delta)}</small>
                         </div>
                       ))}
                     </div>
                   </div>
-                  <p className="fineprint">Failed and incomplete runs remain in summaries and status counts. Paired deltas include only seeds where both runs completed; inspect counts before interpreting differences. Energy cost uses the configured illustrative tariff and is not a cloud bill.</p>
+                  <p className="fineprint">Completed means the simulator reached its fixed horizon, not that all jobs finished. Full-workload denominators retain infeasible and unresolved jobs; paired deltas include only matched scenario/seed runs with identical failure traces. Nemotron is deterministic fallback unless live inference is explicitly selected. Energy cost is an estimate, not a cloud bill.</p>
                 </>
               ) : (
                 <div className="empty-state benchmark-empty"><Activity size={23} /><p>Run the fixed-seed policy suite to populate this comparison.</p><small>No sample benchmark numbers are shown as current session output.</small></div>
@@ -523,7 +538,7 @@ export default function GridMindConsole() {
                       <span className={`history-status ${run.status === "completed" ? "history-ok" : "history-error"}`} />
                       <div><strong>{run.policy}</strong><small>{run.kind} · seed {run.seed}{run.scenario_sha256 ? ` · ${run.scenario_sha256.slice(0, 8)}` : ""}</small></div>
                       <span>{formatNumber(run.metrics?.completed_workloads, 0)} complete</span>
-                      <span>{formatPercent(run.metrics?.sla_attainment_rate ?? 0)} SLA</span>
+                      <span>{formatRate(run.metrics?.sla_attainment_rate)} SLA</span>
                       <span className="history-state">{run.status}</span>
                       <ChevronRight size={15} />
                     </div>
