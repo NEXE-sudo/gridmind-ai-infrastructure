@@ -9,7 +9,7 @@ Update this file in every PR. Keep entries factual and evidence-based.
 | [#1](https://github.com/NEXE-sudo/gridmind-ai-infrastructure/pull/1) | P0–P1 | Plan, workflow, simulator, schedulers, guarded Nemotron proposal path, API, tests | Squash-merged 2026-10-26 as `5ebc47ca8395c67aacd754bbb66a824c42081727`; post-merge verification passed |
 | [#2](https://github.com/NEXE-sudo/gridmind-ai-infrastructure/pull/2) | P2–P7 | Complete GridMind simulation, metrics, paired-seed benchmark, dashboard, API, docs, and CI | Squash-merged 2026-10-26 as `966cfc6ae22cff284264f988e78b72ad2ac555f1`; post-merge CI and local verification passed |
 | [#3](https://github.com/NEXE-sudo/gridmind-ai-infrastructure/pull/3) | P2–P5 | Ten-scenario paired benchmark suite, simulator/API safeguards, dashboard scenario controls, audits, and submission docs | Open for review; not merged. Initial PR checks were pending at submission; local verification is recorded below. |
-| #4 | P2–P5 | Fixed-horizon workload accounting, scheduling diagnostics, paired evaluation, reproducible evidence | Prepared from `feat/gridmind-benchmark-validity` for `feat/gridmind-repurpose`; PR #3 remains open and unmodified. |
+| [#4](https://github.com/NEXE-sudo/gridmind-ai-infrastructure/pull/4) | P2–P5 | Fixed-horizon workload accounting, scheduling diagnostics, paired evaluation, reproducible evidence | Open for review from `feat/gridmind-benchmark-validity` to `feat/gridmind-repurpose`; GitHub Python and dashboard jobs passed on head `7ce108d`. PR #3 remains open and unmodified. |
 
 ## Entry template
 
@@ -167,9 +167,12 @@ Update this file in every PR. Keep entries factual and evidence-based.
   or published demo video. The 2x continuation is diagnostic evidence, not a
   production drain guarantee. Seven existing ESLint Fast Refresh warnings
   remain. `legacy-training` was not installed or audited.
-- PR status: prepared on `feat/gridmind-benchmark-validity` targeting
-  `feat/gridmind-repurpose`; PR #3 remains open and unmodified. GitHub checks
-  for PR #4 will be reported after submission.
+- PR status: opened as [#4](https://github.com/NEXE-sudo/gridmind-ai-infrastructure/pull/4)
+  from `feat/gridmind-benchmark-validity` to `feat/gridmind-repurpose`; it
+  remains open and unmerged. PR #3 remains open and unmodified.
+- GitHub Actions: Python and dashboard jobs passed on PR head
+  `7ce108d95892e8bcd599ec90788cde06d96df6b7` in run
+  [40371767347](https://github.com/NEXE-sudo/gridmind-ai-infrastructure/actions/runs/40371767347).
 
 ## Decisions
 
