@@ -6,6 +6,7 @@ on:
     branches:
       - feat/gridmind-repurpose
       - feat/gridmind-end-to-end-platform
+      - feat/gridmind-scenario-lab-benchmarks
 
 jobs:
   python:
@@ -18,20 +19,36 @@ jobs:
       - uses: astral-sh/setup-uv@v5
       - name: Install Python dependencies
         working-directory: Scaler_hackathon
-        run: uv sync --locked --extra dev
+        run: uv sync --locked --extra dev --extra legacy
       - name: Run Python tests
         working-directory: Scaler_hackathon
-        run: uv run --locked python -m pytest -q
+        run: uv run --locked --extra dev --extra legacy python -m pytest -q
+      - name: Audit locked Python application dependencies
+        working-directory: Scaler_hackathon
+        run: |
+          uv export --locked --format requirements-txt --no-dev --no-emit-project \
+            --extra legacy -o "$RUNNER_TEMP/gridmind-requirements.txt"
+          uvx --python 3.11 --from pip-audit pip-audit \
+            -r "$RUNNER_TEMP/gridmind-requirements.txt"
       - name: Lint GridMind Python modules
         working-directory: Scaler_hackathon
         run: >-
-          uv run --locked ruff check
+          uv run --locked --extra dev --extra legacy ruff check
           server/datacenter_simulator.py server/workload_scheduler.py
           server/metrics.py server/nemotron.py server/decision.py
           server/benchmarks.py server/gridmind_app.py
+          server/scenarios.py
           tests/test_gridmind_simulator.py tests/test_gridmind_api.py
           tests/test_gridmind_metrics.py tests/test_gridmind_benchmarks.py
           tests/test_nemotron.py scripts/smoke_test_nemotron.py
+      - name: Run deterministic scenario-suite smoke benchmark
+        working-directory: Scaler_hackathon
+        run: >-
+          uv run --locked --extra dev --extra legacy
+          python -m server.benchmarks
+          --suite configs/scenarios.json
+          --seeds 1
+          --output-dir /tmp/gridmind-ci-benchmarks
 
   dashboard:
     runs-on: ubuntu-latest
@@ -47,6 +64,8 @@ jobs:
           cache-dependency-path: Scaler_hackathon/agent-grid-view/package-lock.json
       - name: Install frontend dependencies
         run: npm ci
+      - name: Audit frontend dependencies
+        run: npm audit --audit-level=low
       - name: Test dashboard
         run: npm test -- --run
       - name: Lint dashboard

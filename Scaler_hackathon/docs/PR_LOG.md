@@ -8,6 +8,7 @@ Update this file in every PR. Keep entries factual and evidence-based.
 |---|---|---|---|
 | [#1](https://github.com/NEXE-sudo/gridmind-ai-infrastructure/pull/1) | P0–P1 | Plan, workflow, simulator, schedulers, guarded Nemotron proposal path, API, tests | Squash-merged 2026-10-26 as `5ebc47ca8395c67aacd754bbb66a824c42081727`; post-merge verification passed |
 | [#2](https://github.com/NEXE-sudo/gridmind-ai-infrastructure/pull/2) | P2–P7 | Complete GridMind simulation, metrics, paired-seed benchmark, dashboard, API, docs, and CI | Squash-merged 2026-10-26 as `966cfc6ae22cff284264f988e78b72ad2ac555f1`; post-merge CI and local verification passed |
+| [#3](https://github.com/NEXE-sudo/gridmind-ai-infrastructure/pull/3) | P2–P5 | Ten-scenario paired benchmark suite, simulator/API safeguards, dashboard scenario controls, audits, and submission docs | Open for review; not merged. Initial PR checks were pending at submission; local verification is recorded below. |
 
 ## Entry template
 
@@ -64,6 +65,46 @@ Update this file in every PR. Keep entries factual and evidence-based.
   check/build jobs. Local CI-equivalent Python tests — 133 passed; targeted
   GridMind tests — 41 passed; dashboard tests — 3 passed; TypeScript checks
   and production build — passed; ESLint — 0 errors and 7 Fast Refresh warnings.
+
+### PR #3 — Add multi-scenario GridMind benchmarks
+- Phase(s): P2–P5.
+- Problem solved: broaden the single-scenario evaluation into reproducible,
+  statistically paired multi-scenario experiments with explicit accounting
+  for incomplete runs, while improving simulator and API safeguards.
+- Behaviour delivered: ten versioned synthetic scenarios; workload and
+  exogenous failure pairing by seed; GPU-model compatibility; expanded
+  recovery, preemption, starvation, and infeasibility metrics; paired
+  bootstrap summaries; bounded suite API and CLI operations; scenario-aware
+  dashboard controls; dependency upgrades and audit gates.
+- Key files/components: `configs/scenarios.json`, `server/scenarios.py`,
+  `server/benchmarks.py`, `server/datacenter_simulator.py`,
+  `server/metrics.py`, `server/gridmind_app.py`, dashboard scenario controls,
+  and `.github/workflows/ci.yml`.
+- Tests run and exact result: Python suite — 144 passed; changed-file Ruff —
+  passed; dashboard tests — 3 passed; TypeScript check and production build —
+  passed; ESLint — 0 errors and 7 Fast Refresh warnings; `uv lock --check` —
+  passed. Full and production `npm audit` — 0 findings. Python 3.11 runtime
+  plus legacy test-extra `pip-audit` — 0 findings. The separate optional
+  `legacy-training` extra has 69 findings across `datasets`, `torch`, and
+  `transformers` and is excluded from the GridMind runtime/CI. GitHub Actions
+  Python and dashboard jobs passed on PR head `8796514`; this documentation
+  update will trigger a final PR check run.
+- Benchmark evidence: checked-in five-seed suite — 200 runs across 10
+  scenarios and 4 policies; 64 completed, 136 horizon-incomplete, 0 failed.
+  Repeated CSV and Markdown outputs were byte-identical. Results are
+  synthetic; offline Nemotron uses fallback and is not evidence of live
+  model inference or an AI performance gain.
+- Manual verification: no live Token Factory call, public deployment,
+  license grant, or demo video is claimed. Python 3.10's optional legacy
+  extra resolves a Pillow release with known advisories because the patched
+  release requires Python 3.11+.
+- Follow-up phase: obtain authorized credentials and a verified model ID for
+  live inference; confirm rights for a public license; publish the
+  under-three-minute demo; decide whether to upgrade or retire the historical
+  training extra.
+- PR status: opened as #3 from `feat/gridmind-scenario-lab-benchmarks` to
+  `feat/gridmind-repurpose`, initially at commit `7848f77`. Review only; not
+  merged.
 
 ## Decisions
 

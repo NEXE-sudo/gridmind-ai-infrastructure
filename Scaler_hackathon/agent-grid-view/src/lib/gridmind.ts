@@ -1,5 +1,19 @@
 export type PolicyId = "fifo" | "priority" | "resource_aware" | "nemotron";
-export type ScenarioId = "standard" | "workload_surge" | "node_failure" | "tight_deadlines";
+export type ScenarioId =
+  | "standard"
+  | "workload_surge"
+  | "node_failure"
+  | "tight_deadlines"
+  | "balanced"
+  | "burst_arrivals"
+  | "mixed_priority_deadlines"
+  | "heterogeneous_gpu_types"
+  | "gpu_memory_pressure"
+  | "tight_power_budget"
+  | "node_failure_recovery"
+  | "short_long_contention"
+  | "infeasible_workloads"
+  | "combined_stress";
 export type WorkloadStatus = "pending" | "running" | "completed" | "failed" | "cancelled";
 
 export interface NodeState {
@@ -25,6 +39,8 @@ export interface WorkloadState {
   memory_gb: number;
   duration: number;
   priority: number;
+  workload_class: string;
+  required_gpu_model: string | null;
   deadline: number | null;
   submission_time: number;
   submitted: boolean;

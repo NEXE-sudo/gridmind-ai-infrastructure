@@ -14,17 +14,24 @@ From the repository root:
 
 ```bash
 cd Scaler_hackathon
-uv sync --locked --extra dev
-uv run python -m pytest -q
-uv run ruff check \
+uv sync --locked --extra dev --extra legacy
+uv run --locked --extra dev --extra legacy python -m pytest -q
+uv run --locked --extra dev --extra legacy ruff check \
   server/datacenter_simulator.py server/workload_scheduler.py \
   server/metrics.py server/nemotron.py server/decision.py \
-  server/benchmarks.py server/gridmind_app.py \
+  server/benchmarks.py server/gridmind_app.py server/scenarios.py \
   tests/test_gridmind_simulator.py tests/test_gridmind_api.py \
   tests/test_gridmind_metrics.py tests/test_gridmind_benchmarks.py \
   tests/test_nemotron.py scripts/smoke_test_nemotron.py
+uv export --locked --format requirements-txt --no-dev --no-emit-project \
+  --extra legacy -o /tmp/gridmind-requirements.txt
+uvx --python 3.11 --from pip-audit pip-audit -r /tmp/gridmind-requirements.txt
+uv run --locked --extra dev --extra legacy python -m server.benchmarks \
+  --suite configs/scenarios.json --seeds 1 \
+  --output-dir /tmp/gridmind-ci-benchmark
 cd agent-grid-view
 npm ci
+npm audit --audit-level=low
 npm test -- --run
 npm run lint
 npx tsc -b --pretty false
@@ -38,9 +45,10 @@ Frontend lint can emit inherited Fast Refresh warnings; errors fail the gate.
 ## CI
 
 `.github/workflows/ci.yml` runs Python 3.11 tests and GridMind Ruff checks,
-plus Node 20 dashboard tests, lint, type diagnostics, and production build.
-CI uses `uv.lock` and `package-lock.json`. CI results must be checked on the
-actual PR before merge; local success is not a remote CI claim.
+Python dependency auditing and a bounded deterministic scenario-suite smoke,
+plus Node 20 dashboard audit, tests, lint, type diagnostics, and production
+build. CI uses `uv.lock` and `package-lock.json`. CI results must be checked
+on the actual PR; local success is not a remote CI claim.
 
 ## Runtime and demo checks
 

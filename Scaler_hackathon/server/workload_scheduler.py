@@ -57,6 +57,10 @@ def schedule(
             power_delta = node.per_gpu_kw * workload.gpu_count
             if (
                 node.available
+                and (
+                    workload.required_gpu_model is None
+                    or workload.required_gpu_model == node.gpu_model
+                )
                 and gpu_count + workload.gpu_count <= node.gpu_count
                 and memory_gb + workload.memory_gb <= node.memory_gb
                 and projected_node_power <= node.power_limit_kw
