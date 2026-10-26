@@ -68,6 +68,11 @@ class Workload:
     completed_work_units: int = 0
     required_gpu_model: str | None = None
     workload_class: str = "general"
+    failure_reason: str | None = None
+    failed_at: int | None = None
+    last_scheduling_reason: str | None = None
+    last_scheduling_step: int | None = None
+    scheduling_skip_counts: dict[str, int] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
         if (
@@ -128,6 +133,7 @@ class DatacenterSimulator:
         workloads: Iterable[Workload | dict[str, Any]] | None = None,
         recovery_steps: int = 1,
         energy_price_per_kwh: float = 0.08,
+        horizon_steps: int | None = None,
     ):
         if not math.isfinite(power_budget_kw) or power_budget_kw <= 0:
             raise ValueError("Power budget must be finite and positive")
@@ -137,6 +143,8 @@ class DatacenterSimulator:
             raise ValueError("Node recovery must take at least one step")
         if not math.isfinite(energy_price_per_kwh) or energy_price_per_kwh < 0:
             raise ValueError("Energy price must be finite and non-negative")
+        if horizon_steps is not None and horizon_steps < 1:
+            raise ValueError("Simulation horizon must be a positive number of steps")
         self.seed = seed
         self.rng = random.Random(seed)
         self.failure_rng = random.Random(seed ^ 0x5F3759DF)
@@ -145,6 +153,7 @@ class DatacenterSimulator:
         self.failure_probability = failure_probability
         self.recovery_steps = recovery_steps
         self.energy_price_per_kwh = energy_price_per_kwh
+        self.horizon_steps = horizon_steps
         self.nodes = [
             value if isinstance(value, Node) else Node(**value)
             for value in (nodes if nodes is not None else DEFAULT_NODES)
@@ -167,6 +176,7 @@ class DatacenterSimulator:
                     "per_gpu_kw",
                     "gpu_model",
                     "available",
+                    "recover_at_step",
                 }
             }
             for node in self.nodes
@@ -188,9 +198,17 @@ class DatacenterSimulator:
         self.ai_latencies_ms: list[float] = []
         self.model_cost: float | None = None
         self.model_cost_basis = "not_available"
+        self.node_failure_trace: list[dict[str, int | str]] = []
+        self._initial_events: list[dict[str, str]] = []
         self.counters = {
             "rejected_actions": 0,
             "resource_rejections": 0,
+            "gpu_model_rejections": 0,
+            "gpu_count_rejections": 0,
+            "memory_rejections": 0,
+            "node_availability_rejections": 0,
+            "node_power_rejections": 0,
+            "facility_power_rejections": 0,
             "power_budget_violations": 0,
             "node_failures": 0,
             "node_recoveries": 0,
@@ -205,6 +223,17 @@ class DatacenterSimulator:
             "ai_completion_tokens": 0,
         }
         self._allocations()
+        for workload in self.workloads:
+            if workload.submitted:
+                reason = self._fail_if_permanently_infeasible(workload)
+                if reason:
+                    self._initial_events.append(
+                        {
+                            "type": "workload_failed",
+                            "workload_id": workload.id,
+                            "reason": f"permanent_infeasibility:{reason}",
+                        }
+                    )
 
     def _allocations(self) -> None:
         for node in self.nodes:
@@ -238,8 +267,59 @@ class DatacenterSimulator:
             workloads=self._workload_specs,
             recovery_steps=self.recovery_steps,
             energy_price_per_kwh=self.energy_price_per_kwh,
+            horizon_steps=self.horizon_steps,
         )
         return self.state()
+
+    def permanent_infeasibility_reason(
+        self, workload: Workload
+    ) -> str | None:
+        """Return a structural reason the workload cannot run on this pool."""
+        matching = [
+            node
+            for node in self.nodes
+            if workload.required_gpu_model is None
+            or workload.required_gpu_model == node.gpu_model
+        ]
+        if not matching:
+            return "gpu_model_unavailable"
+
+        gpu_fit = [node for node in matching if workload.gpu_count <= node.gpu_count]
+        if not gpu_fit:
+            return "gpu_count_exceeds_node_capacity"
+
+        memory_fit = [node for node in gpu_fit if workload.memory_gb <= node.memory_gb]
+        if not memory_fit:
+            return "memory_exceeds_node_capacity"
+
+        joint_fit = [
+            node
+            for node in memory_fit
+            if node.idle_kw + node.per_gpu_kw * workload.gpu_count
+            <= node.power_limit_kw
+        ]
+        if not joint_fit:
+            return "node_power_limit_exceeded"
+
+        if not any(
+            sum(node.idle_kw for node in self.nodes)
+            + node.per_gpu_kw * workload.gpu_count
+            <= self.power_budget_kw
+            for node in joint_fit
+        ):
+            return "facility_power_limit_exceeded_at_idle"
+        return None
+
+    def _fail_if_permanently_infeasible(self, workload: Workload) -> str | None:
+        if workload.status != "pending":
+            return None
+        reason = self.permanent_infeasibility_reason(workload)
+        if reason is None:
+            return None
+        workload.status = "failed"
+        workload.failure_reason = f"permanent_infeasibility:{reason}"
+        workload.failed_at = self.step_count
+        return reason
 
     def activate_arrivals(self) -> list[str]:
         arrived = []
@@ -247,7 +327,49 @@ class DatacenterSimulator:
             if not workload.submitted and workload.submission_time <= self.step_count:
                 workload.submitted = True
                 arrived.append(workload.id)
+                self._fail_if_permanently_infeasible(workload)
         return arrived
+
+    def prepare_step(self) -> list[dict[str, str]]:
+        events = self._initial_events
+        self._initial_events = []
+        arrived = self.activate_arrivals()
+        for workload_id in arrived:
+            workload = next(item for item in self.workloads if item.id == workload_id)
+            if workload.failure_reason:
+                events.append(
+                    {
+                        "type": "workload_failed",
+                        "workload_id": workload_id,
+                        "reason": workload.failure_reason,
+                    }
+                )
+            else:
+                events.append({"type": "workload_arrived", "workload_id": workload_id})
+        for node in self.nodes:
+            if node.recover_at_step is not None and node.recover_at_step <= self.step_count:
+                node.available = True
+                node.recover_at_step = None
+                self.counters["node_recoveries"] += 1
+                events.append({"type": "node_recovered", "node_id": node.id})
+        return events
+
+    def record_scheduling_diagnostics(
+        self, diagnostics: list[dict[str, Any]]
+    ) -> None:
+        by_id = {workload.id: workload for workload in self.workloads}
+        for item in diagnostics:
+            workload = by_id.get(item.get("workload_id"))
+            if workload is None or workload.status != "pending" or not workload.submitted:
+                continue
+            reason = item.get("reason")
+            if not isinstance(reason, str):
+                continue
+            workload.last_scheduling_reason = reason
+            workload.last_scheduling_step = self.step_count
+            workload.scheduling_skip_counts[reason] = (
+                workload.scheduling_skip_counts.get(reason, 0) + 1
+            )
 
     def validate_assignments(self, assignments: dict[str, str]) -> list[dict[str, str]]:
         if not isinstance(assignments, dict) or any(
@@ -283,23 +405,32 @@ class DatacenterSimulator:
                 reason = "incompatible_gpu_model"
             else:
                 gpu_count, memory_gb = reserved[node.id]
-                if (
-                    not node.available
-                    or gpu_count + workload.gpu_count > node.gpu_count
-                    or memory_gb + workload.memory_gb > node.memory_gb
+                if not node.available:
+                    reason = "node_unavailable"
+                elif workload.gpu_count > node.gpu_count:
+                    reason = "gpu_count_exceeds_node_capacity"
+                elif workload.memory_gb > node.memory_gb:
+                    reason = "memory_exceeds_node_capacity"
+                elif gpu_count + workload.gpu_count > node.gpu_count:
+                    reason = "temporary_gpu_capacity_contention"
+                elif memory_gb + workload.memory_gb > node.memory_gb:
+                    reason = "temporary_memory_capacity_contention"
+                elif (
+                    node.idle_kw + node.per_gpu_kw * workload.gpu_count
+                    > node.power_limit_kw
                 ):
-                    reason = "insufficient_or_unavailable_resources"
+                    reason = "node_power_limit_exceeded"
                 elif (
                     node.idle_kw
                     + node.per_gpu_kw * (gpu_count + workload.gpu_count)
                     > node.power_limit_kw
                 ):
-                    reason = "node_power_limit_exceeded"
+                    reason = "node_power_reservation_contention"
                 elif (
                     projected_power + node.per_gpu_kw * workload.gpu_count
                     > self.power_budget_kw
                 ):
-                    reason = "power_budget_exceeded"
+                    reason = "facility_power_budget_contention"
             seen.add(workload_id)
             if reason:
                 rejected.append({"workload_id": workload_id, "reason": reason})
@@ -315,6 +446,8 @@ class DatacenterSimulator:
         assignments: dict[str, str] | None = None,
         preempt: list[str] | None = None,
         cancel: list[str] | None = None,
+        *,
+        prepared_events: list[dict[str, str]] | None = None,
     ) -> dict[str, Any]:
         assignments, preempt, cancel = assignments or {}, preempt or [], cancel or []
         if (
@@ -331,13 +464,8 @@ class DatacenterSimulator:
 
         by_id = {workload.id: workload for workload in self.workloads}
         rejected: list[dict[str, str]] = []
-        events: list[dict[str, str]] = self.activate_arrivals()
-        for node in self.nodes:
-            if node.recover_at_step is not None and node.recover_at_step <= self.step_count:
-                node.available = True
-                node.recover_at_step = None
-                self.counters["node_recoveries"] += 1
-                events.append({"type": "node_recovered", "node_id": node.id})
+        events: list[dict[str, str]] = list(prepared_events or [])
+        events.extend(self.prepare_step())
 
         for workload_id in cancel:
             workload = by_id.get(workload_id)
@@ -382,6 +510,9 @@ class DatacenterSimulator:
                 failed_node.available = False
                 failed_node.recover_at_step = self.step_count + self.recovery_steps
                 self.counters["node_failures"] += 1
+                self.node_failure_trace.append(
+                    {"step": self.step_count, "node_id": failed_node.id}
+                )
                 events.append({"type": "node_failed", "node_id": failed_node.id})
                 for workload in self.workloads:
                     if workload.node_id == failed_node.id and workload.status == "running":
@@ -389,11 +520,19 @@ class DatacenterSimulator:
                         workload.node_id = None
                         if workload.failure_count > workload.max_retries:
                             workload.status = "failed"
+                            workload.failure_reason = "max_retries_exceeded"
+                            workload.failed_at = self.step_count
                             events.append(
-                                {"type": "workload_failed", "workload_id": workload.id}
+                                {
+                                    "type": "workload_failed",
+                                    "workload_id": workload.id,
+                                    "reason": workload.failure_reason,
+                                }
                             )
                         else:
                             workload.status = "pending"
+                            workload.last_scheduling_reason = "node_failure_recovery"
+                            workload.last_scheduling_step = self.step_count
                             self.counters["workloads_requeued"] += 1
                             events.append(
                                 {"type": "workload_requeued", "workload_id": workload.id}
@@ -425,17 +564,43 @@ class DatacenterSimulator:
         self.step_count += 1
         self._allocations()
         self.counters["rejected_actions"] += len(rejected)
-        self.counters["resource_rejections"] += sum(
-            item["reason"]
-            in {
-                "insufficient_or_unavailable_resources",
-                "node_power_limit_exceeded",
-                "power_budget_exceeded",
-            }
-            for item in rejected
+        rejection_reasons = [item["reason"] for item in rejected]
+        self.counters["gpu_model_rejections"] += sum(
+            reason == "incompatible_gpu_model" for reason in rejection_reasons
         )
-        self.counters["power_budget_violations"] += sum(
-            item["reason"] == "power_budget_exceeded" for item in rejected
+        self.counters["gpu_count_rejections"] += sum(
+            reason == "gpu_count_exceeds_node_capacity"
+            for reason in rejection_reasons
+        )
+        self.counters["memory_rejections"] += sum(
+            reason == "memory_exceeds_node_capacity" for reason in rejection_reasons
+        )
+        self.counters["node_availability_rejections"] += sum(
+            reason == "node_unavailable" for reason in rejection_reasons
+        )
+        self.counters["node_power_rejections"] += sum(
+            reason
+            in {"node_power_limit_exceeded", "node_power_reservation_contention"}
+            for reason in rejection_reasons
+        )
+        self.counters["facility_power_rejections"] += sum(
+            reason == "facility_power_budget_contention"
+            for reason in rejection_reasons
+        )
+        self.counters["resource_rejections"] += sum(
+            reason
+            in {
+                "incompatible_gpu_model",
+                "gpu_count_exceeds_node_capacity",
+                "memory_exceeds_node_capacity",
+                "node_unavailable",
+                "temporary_gpu_capacity_contention",
+                "temporary_memory_capacity_contention",
+                "node_power_limit_exceeded",
+                "node_power_reservation_contention",
+                "facility_power_budget_contention",
+            }
+            for reason in rejection_reasons
         )
         result = self.state()
         result.update({"rejected_actions": rejected, "events": events})
@@ -447,6 +612,8 @@ class DatacenterSimulator:
             "step": self.step_count,
             "seed": self.seed,
             "power_budget_kw": self.power_budget_kw,
+            "horizon_steps": self.horizon_steps,
+            "node_failure_trace": list(self.node_failure_trace),
             "nodes": [
                 asdict(node)
                 | {

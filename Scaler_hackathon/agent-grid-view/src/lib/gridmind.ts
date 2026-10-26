@@ -49,19 +49,35 @@ export interface WorkloadState {
   remaining: number;
   started_at: number | null;
   completed_at: number | null;
+  failure_reason: string | null;
+  failed_at: number | null;
+  last_scheduling_reason: string | null;
+  last_scheduling_step: number | null;
+  scheduling_skip_counts: Record<string, number>;
 }
 
 export interface OperationalMetrics {
+  total_workloads: number;
+  submitted_workloads: number;
+  not_yet_arrived_workloads: number;
   completed_workloads: number;
   failed_workloads: number;
+  permanently_infeasible_workloads: number;
   cancelled_workloads: number;
   unfinished_workloads: number;
+  unresolved_workloads: number;
+  horizon_incomplete_workloads: number | null;
+  completion_rate: number | null;
+  completion_rate_scenario_denominator: number | null;
+  feasible_scenario_completion_rate: number | null;
   queued_workloads: number;
   running_workloads: number;
   throughput_jobs_per_hour: number;
   deadline_misses: number;
-  deadline_miss_rate: number;
-  sla_attainment_rate: number;
+  deadline_miss_denominator: number;
+  deadline_miss_rate: number | null;
+  deadline_attainment_rate: number | null;
+  sla_attainment_rate: number | null;
   average_queue_wait_minutes: number | null;
   p95_queue_wait_minutes: number | null;
   average_turnaround_minutes: number | null;
@@ -74,9 +90,14 @@ export interface OperationalMetrics {
   estimated_energy_cost: number;
   rejected_actions: number;
   resource_rejections: number;
+  node_power_rejections: number;
+  facility_power_rejections: number;
   power_budget_violations: number;
   failed_nodes: number;
+  recovered_nodes: number;
   workloads_requeued: number;
+  workloads_preempted: number;
+  starved_workloads: number;
   ai_attempts: number;
   ai_invocations: number;
   ai_failures: number;
@@ -88,6 +109,7 @@ export interface OperationalMetrics {
 export interface SimulationState {
   step: number;
   seed: number;
+  horizon_steps: number | null;
   scenario?: ScenarioId;
   power_budget_kw: number;
   queue_depth: number;
@@ -105,6 +127,11 @@ export interface DecisionRecord {
   proposed_assignments: Record<string, string>;
   executed_assignments: Record<string, string>;
   proposal_validation_rejections: Array<{ workload_id: string; reason: string }>;
+  scheduling_diagnostics: Array<{
+    workload_id: string;
+    reason: string;
+    node_reasons: Record<string, string | null>;
+  }>;
   rejected_actions: Array<{ workload_id: string; reason: string }>;
   fallback_used: boolean;
 }
@@ -124,7 +151,7 @@ export interface BenchmarkRun {
   run_id: string;
   policy: PolicyId;
   seed: number;
-  status: "completed" | "failed" | "incomplete";
+  status: "completed" | "failed";
   steps_executed: number;
   metrics: OperationalMetrics;
 }
@@ -135,16 +162,21 @@ export interface BenchmarkResult {
   policies: PolicyId[];
   live_model_enabled: boolean;
   model_id: string | null;
+  schema_version: number;
   runs: BenchmarkRun[];
   comparison: Record<string, {
     run_count: number;
     successful_run_count: number;
     failed_run_count: number;
     incomplete_run_count: number;
+    run_status_counts: Record<string, number>;
+    workload_totals: Record<string, number>;
+    horizon_incomplete_reason_totals: Record<string, number>;
     metrics: Record<string, { mean: number | null; n: number }>;
   }>;
   paired_comparison_vs_resource_aware: Record<string, {
     paired_successful_seed_count: number;
+    paired_successful_run_count: number;
     mean_policy_minus_resource_aware: Record<string, { mean_delta: number | null; n: number }>;
   }>;
 }

@@ -1,6 +1,7 @@
 import pytest
 
 from server.datacenter_simulator import DatacenterSimulator, Node, Workload
+from server.decision import execute_policy_step
 from server.workload_scheduler import schedule
 
 
@@ -54,9 +55,12 @@ def test_required_gpu_model_is_enforced_by_scheduler_and_simulator():
     assert schedule(sim, "resource_aware") == {}
     result = sim.apply_action({"a100-job": "t4"})
     assert result["rejected_actions"] == [
-        {"workload_id": "a100-job", "reason": "incompatible_gpu_model"}
+        {"workload_id": "a100-job", "reason": "unknown_or_not_eligible"}
     ]
-    assert sim.workloads[0].status == "pending"
+    assert sim.workloads[0].status == "failed"
+    assert sim.workloads[0].failure_reason == (
+        "permanent_infeasibility:gpu_model_unavailable"
+    )
 
 
 def test_capacity_violation_is_rejected():
@@ -66,7 +70,7 @@ def test_capacity_violation_is_rejected():
     sim._allocations()
 
     state = sim.apply_action({"large": "small"})
-    assert state["rejected_actions"][0]["reason"] == "insufficient_or_unavailable_resources"
+    assert state["rejected_actions"][0]["reason"] == "gpu_count_exceeds_node_capacity"
     assert sim.workloads[0].status == "pending"
 
 
@@ -74,8 +78,11 @@ def test_node_and_power_limits_are_enforced():
     sim = DatacenterSimulator(power_budget_kw=0.7)
     result = sim.apply_action({"infer-001": "gpu-a"})
     assert result["rejected_actions"] == [
-        {"workload_id": "infer-001", "reason": "power_budget_exceeded"}
+        {"workload_id": "infer-001", "reason": "unknown_or_not_eligible"}
     ]
+    assert next(w for w in sim.workloads if w.id == "infer-001").failure_reason == (
+        "permanent_infeasibility:facility_power_limit_exceeded_at_idle"
+    )
 
     sim = DatacenterSimulator()
     sim.nodes = [Node("small-power", 2, 80, 0.5, idle_kw=0.2, per_gpu_kw=0.4)]
@@ -85,6 +92,7 @@ def test_node_and_power_limits_are_enforced():
     assert result["rejected_actions"] == [
         {"workload_id": "job", "reason": "node_power_limit_exceeded"}
     ]
+    assert sim.workloads[0].status == "pending"
 
 
 def test_completed_workload_consumes_energy_for_its_final_tick():
@@ -169,3 +177,122 @@ def test_invalid_action_types_are_rejected_without_advancing_state():
 def test_unknown_policy_fails_loudly():
     with pytest.raises(ValueError):
         schedule(DatacenterSimulator(), "unknown")
+
+
+@pytest.mark.parametrize(
+    ("nodes", "workload", "power_budget", "reason"),
+    [
+        (
+            [Node("n", 2, 32, 2.0, gpu_model="NVIDIA T4")],
+            Workload("j", "model", 1, 8, 1, required_gpu_model="NVIDIA A100"),
+            3.0,
+            "gpu_model_unavailable",
+        ),
+        (
+            [Node("n", 2, 32, 2.0)],
+            Workload("j", "memory", 1, 64, 1),
+            3.0,
+            "memory_exceeds_node_capacity",
+        ),
+        (
+            [Node("n", 2, 32, 0.5, idle_kw=0.1, per_gpu_kw=0.5)],
+            Workload("j", "node power", 1, 8, 1),
+            3.0,
+            "node_power_limit_exceeded",
+        ),
+        (
+            [Node("n", 2, 32, 2.0, idle_kw=0.1, per_gpu_kw=0.8)],
+            Workload("j", "facility power", 2, 8, 1),
+            1.5,
+            "facility_power_limit_exceeded_at_idle",
+        ),
+    ],
+)
+def test_permanent_infeasibility_is_terminal_and_reasoned(
+    nodes, workload, power_budget, reason
+):
+    sim = DatacenterSimulator(
+        power_budget_kw=power_budget,
+        nodes=nodes,
+        workloads=[workload],
+    )
+    assert workload.status == "failed"
+    assert workload.failure_reason == f"permanent_infeasibility:{reason}"
+    assert sim.permanent_infeasibility_reason(workload) == reason
+    first = sim.prepare_step()
+    second = sim.prepare_step()
+    failures = [event for event in first + second if event["type"] == "workload_failed"]
+    assert len(failures) == 1
+
+
+def test_temporary_facility_power_contention_resolves_after_running_work_finishes():
+    sim = DatacenterSimulator(
+        power_budget_kw=1.0,
+        nodes=[Node("n", 2, 32, 2.0, idle_kw=0.1, per_gpu_kw=0.5)],
+        workloads=[
+            Workload("first", "first", 1, 8, 1),
+            Workload("second", "second", 1, 8, 1),
+        ],
+    )
+    first = execute_policy_step(sim, "fifo")
+    assert first["executed_assignments"] == {"first": "n"}
+    assert sim.workloads[1].last_scheduling_reason == (
+        "same_decision_reservation_contention"
+    )
+    second = execute_policy_step(sim, "fifo")
+    assert second["executed_assignments"] == {"second": "n"}
+    assert [workload.status for workload in sim.workloads] == [
+        "completed",
+        "completed",
+    ]
+    assert sim.workloads[1].failure_reason is None
+
+
+def test_scheduler_observes_node_recovery_before_choosing_assignments():
+    node = Node("n", 1, 16, 1.0, idle_kw=0.1, per_gpu_kw=0.5, available=False)
+    node.recover_at_step = 0
+    sim = DatacenterSimulator(
+        nodes=[node],
+        workloads=[Workload("job", "recovery", 1, 8, 1)],
+    )
+    result = execute_policy_step(sim, "fifo")
+
+    assert result["executed_assignments"] == {"job": "n"}
+    assert {"type": "node_recovered", "node_id": "n"} in result["events"]
+    assert sim.counters["node_recoveries"] == 1
+    assert sim.workloads[0].status == "completed"
+
+
+def test_completion_at_horizon_and_incomplete_work_are_distinguished():
+    sim = DatacenterSimulator(
+        power_budget_kw=2,
+        nodes=[Node("n", 2, 32, 2.0, idle_kw=0, per_gpu_kw=0.5)],
+        workloads=[
+            Workload("at-cutoff", "at cutoff", 1, 8, 2),
+            Workload("past-cutoff", "past cutoff", 1, 8, 3),
+        ],
+        horizon_steps=2,
+    )
+    execute_policy_step(sim, "fifo")
+    execute_policy_step(sim, "fifo")
+    metrics = sim.state()["metrics"]
+
+    assert sim.workloads[0].status == "completed"
+    assert sim.workloads[0].completed_at == 2
+    assert sim.workloads[1].status == "running"
+    assert metrics["horizon_incomplete_workloads"] == 1
+    assert metrics["horizon_incomplete_workload_ids"] == ["past-cutoff"]
+
+
+def test_post_deadline_work_remains_eligible_for_completion():
+    sim = DatacenterSimulator(
+        power_budget_kw=1,
+        nodes=[Node("n", 1, 16, 1, idle_kw=0, per_gpu_kw=0.5)],
+        workloads=[Workload("late", "late", 1, 8, 2, deadline=0)],
+    )
+    first = execute_policy_step(sim, "fifo")
+    assert first["executed_assignments"] == {"late": "n"}
+    execute_policy_step(sim, "fifo")
+    assert sim.workloads[0].status == "completed"
+    assert sim.workloads[0].completed_at == 2
+    assert sim.state()["metrics"]["deadline_misses"] == 1

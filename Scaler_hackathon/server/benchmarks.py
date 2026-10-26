@@ -19,8 +19,8 @@ from .decision import POLICIES, execute_policy_step
 from .metrics import aggregate_runs, bootstrap_mean_interval
 from .scenarios import load_scenario_suite, scenario_configs
 
-SIMULATOR_VERSION = "gridmind-simulator-v3"
-POLICY_VERSION = "gridmind-policies-v2"
+SIMULATOR_VERSION = "gridmind-simulator-v4"
+POLICY_VERSION = "gridmind-policies-v3"
 MAX_EXPERIMENT_SEEDS = 100
 MAX_SUITE_RUNS = 2_000
 MAX_SUITE_POLICY_STEPS = 500_000
@@ -102,6 +102,7 @@ def make_seeded_scenario(config: dict[str, Any], seed: int) -> dict[str, Any]:
         "suite_id": config.get("suite_id"),
         "topology_id": config.get("topology_id"),
         "seed_behavior": config.get("seed_behavior"),
+        "horizon_rationale": config.get("horizon_rationale"),
         "synthetic_assumptions": config.get("synthetic_assumptions", True),
         "workload_parameters": config.get("workload_parameters"),
         "power_budget_kw": config["power_budget_kw"],
@@ -140,13 +141,32 @@ def run_episode(
         "seed": scenario["seed"],
         "live_model_enabled": live_model,
         "model_id": os.getenv("GRIDMIND_MODEL") if live_model else None,
+        "model_execution_mode": (
+            "live_inference" if live_model and policy == "nemotron"
+            else "deterministic_fallback" if policy == "nemotron"
+            else "baseline_scheduler"
+        ),
+        "policy_sha256": hashlib.sha256(
+            json.dumps(
+                {"policy": policy, "version": POLICY_VERSION},
+                sort_keys=True,
+                separators=(",", ":"),
+            ).encode()
+        ).hexdigest(),
         "status": "failed",
+        "termination_reason": None,
+        "workloads_terminal_at_step": None,
         "steps_executed": 0,
         "error_type": None,
         "created_at": started.isoformat(),
         "metrics": None,
         "history": [],
         "history_included": include_history,
+        "event_trace": [],
+        "event_counts": {},
+        "scheduling_diagnostic_trace": [],
+        "exogenous_failure_trace": [],
+        "exogenous_failure_trace_sha256": hashlib.sha256(b"[]").hexdigest(),
     }
     try:
         simulator = DatacenterSimulator(
@@ -157,9 +177,28 @@ def run_episode(
             workloads=scenario["workloads"],
             recovery_steps=scenario["recovery_steps"],
             energy_price_per_kwh=scenario["energy_price_per_kwh"],
+            horizon_steps=config["max_steps"],
         )
         for _ in range(config["max_steps"]):
             step = execute_policy_step(simulator, policy, use_live_model=live_model)
+            for event in step["events"]:
+                event_row = {"step": simulator.step_count - 1, **event}
+                record["event_trace"].append(event_row)
+                event_type = event["type"]
+                record["event_counts"][event_type] = (
+                    record["event_counts"].get(event_type, 0) + 1
+                )
+            record["scheduling_diagnostic_trace"].extend(
+                step["scheduling_diagnostics"]
+            )
+            if (
+                record["workloads_terminal_at_step"] is None
+                and not any(
+                    workload.status in {"pending", "running"}
+                    for workload in simulator.workloads
+                )
+            ):
+                record["workloads_terminal_at_step"] = simulator.step_count
             if include_history:
                 record["history"].append(
                     {
@@ -172,6 +211,7 @@ def run_episode(
                             "explanation",
                             "proposal_status",
                             "proposal_latency_ms",
+                            "scheduling_diagnostics",
                             "fallback_used",
                             "rejected_actions",
                             "events",
@@ -179,18 +219,21 @@ def run_episode(
                         )
                     }
                 )
-            if not any(
-                workload.status in {"pending", "running"}
-                for workload in simulator.workloads
-            ):
-                record["status"] = "completed"
-                break
-        else:
-            record["status"] = "incomplete"
+        record["status"] = "completed"
+        record["termination_reason"] = "fixed_horizon_reached"
         record["steps_executed"] = simulator.step_count
         record["metrics"] = simulator.state()["metrics"]
         record["node_state"] = simulator.state()["nodes"]
         record["workload_state"] = simulator.state()["workloads"]
+        record["exogenous_failure_trace"] = list(simulator.node_failure_trace)
+        failure_trace = json.dumps(
+            record["exogenous_failure_trace"],
+            sort_keys=True,
+            separators=(",", ":"),
+        )
+        record["exogenous_failure_trace_sha256"] = hashlib.sha256(
+            failure_trace.encode()
+        ).hexdigest()
     except Exception as exc:  # noqa: BLE001 - isolate and preserve each failed run.
         logger.error(
             "Benchmark episode failed for policy=%s seed=%s (%s)",
@@ -204,9 +247,16 @@ def run_episode(
             record["metrics"] = simulator.state()["metrics"]
             record["node_state"] = simulator.state()["nodes"]
             record["workload_state"] = simulator.state()["workloads"]
-            record["status"] = (
-                "incomplete" if simulator.step_count > 0 else "failed"
-            )
+            record["status"] = "failed"
+            record["termination_reason"] = "simulation_error"
+            record["exogenous_failure_trace"] = list(simulator.node_failure_trace)
+            record["exogenous_failure_trace_sha256"] = hashlib.sha256(
+                json.dumps(
+                    record["exogenous_failure_trace"],
+                    sort_keys=True,
+                    separators=(",", ":"),
+                ).encode()
+            ).hexdigest()
     return record
 
 
@@ -257,7 +307,7 @@ def run_experiments(
         for policy in policies
     }
     return {
-        "schema_version": 2,
+        "schema_version": 3,
         "created_at": datetime.now(UTC).isoformat(),
         "configuration": config,
         "scenario_id": config.get("scenario_id", config["name"]),
@@ -272,6 +322,7 @@ def run_experiments(
         "limitations": [
             "Synthetic one-minute simulation; power and energy are not facility telemetry.",
             "Results are scenario- and seed-specific; small samples are not statistically conclusive.",
+            "Every policy runs the same declared fixed horizon; unresolved workload outcomes are reported separately from execution status.",
             "Offline Nemotron policy records fallback execution, not model inference.",
             "Model-generated explanations are rationales, not causal proof.",
         ],
@@ -314,7 +365,7 @@ def run_scenario_suite(
         }
         all_runs.extend(result["runs"])
     return {
-        "schema_version": 2,
+        "schema_version": 3,
         "created_at": datetime.now(UTC).isoformat(),
         "suite_id": suite["suite_id"],
         "suite_version": suite["suite_version"],
@@ -327,10 +378,11 @@ def run_scenario_suite(
         "runs": all_runs,
         "limitations": [
             "All workload, topology, power, failure, and price values are synthetic.",
-            "Each policy is paired by scenario hash and seed; failure traces are exogenous and seeded.",
+            "Each policy is paired by seed and scenario hash and executes the entire fixed horizon; recorded exogenous node-failure traces must match.",
             "Uncertainty is summarized over scenario-seed run pairs, not jobs or simulation ticks.",
             "Offline Nemotron is deterministic resource-aware fallback, not live model inference.",
             "Scenario aggregates should not be combined into one ranking because scenarios differ.",
+            "Execution status describes whether the simulation reached its horizon without an exception; it does not imply every workload completed.",
         ],
     }
 
@@ -343,7 +395,10 @@ def paired_comparison(records: list[dict[str, Any]], policies: list[str]) -> dic
     }
     metrics = (
         "throughput_jobs_per_hour",
+        "completion_rate_scenario_denominator",
+        "feasible_scenario_completion_rate",
         "deadline_miss_rate",
+        "deadline_attainment_rate",
         "sla_attainment_rate",
         "estimated_energy_kwh",
         "estimated_energy_cost",
@@ -359,8 +414,19 @@ def paired_comparison(records: list[dict[str, Any]], policies: list[str]) -> dic
             if record["policy"] == policy and record["status"] == "completed"
         }
         paired_keys = sorted(set(baseline) & set(candidates))
+        mismatched_trace_pairs = [
+            key
+            for key in paired_keys
+            if baseline[key].get("exogenous_failure_trace_sha256")
+            != candidates[key].get("exogenous_failure_trace_sha256")
+        ]
+        paired_keys = [
+            key for key in paired_keys if key not in set(mismatched_trace_pairs)
+        ]
         output[policy] = {
             "paired_successful_seed_count": len(paired_keys),
+            "paired_successful_run_count": len(paired_keys),
+            "excluded_mismatched_failure_trace_pairs": len(mismatched_trace_pairs),
             "paired_scenario_hash_count": len(
                 {scenario_hash for _, scenario_hash in paired_keys}
             ),
@@ -428,9 +494,14 @@ def write_results(result: dict[str, Any], output_dir: str | Path) -> dict[str, s
         "seed",
         "live_model_enabled",
         "model_id",
+        "model_execution_mode",
         "status",
         "steps_executed",
+        "termination_reason",
+        "workloads_terminal_at_step",
         "error_type",
+        "policy_sha256",
+        "exogenous_failure_trace_sha256",
     ]
     metric_fields = sorted(
         {
@@ -469,7 +540,7 @@ def render_report(result: dict[str, Any]) -> str:
         f"- Live model enabled: `{result['live_model_enabled']}`",
         f"- Model ID: `{result['model_id'] or 'not used'}`",
         "",
-        "## All-run policy summaries",
+        "## Policy summaries",
         "",
         "| Policy | Runs | Completed | Failed | Incomplete | Throughput jobs/hour | SLA attainment | Deadline miss rate | Energy kWh | Cost estimate |",
         "|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|",
@@ -492,16 +563,17 @@ def render_report(result: dict[str, Any]) -> str:
         [
             "",
             (
-                "Power, energy, and cost are synthetic estimates. Cost uses the scenario's "
-                "configured energy rate, not a cloud bill. The aggregation includes partial "
-                "metrics from failed/incomplete records; status counts are reported separately."
+                "A completed run reached the fixed horizon without a simulation exception; "
+                "it does not mean all workloads completed. Aggregated metrics use successful "
+                "executions only; failed runs remain in the run and error counts. Power, energy, "
+                "and cost are synthetic estimates, not facility telemetry or a cloud bill."
             ),
             "",
             "## Paired comparison against resource-aware",
             "",
             (
-                "Only seed pairs where both policy runs completed are used in this paired table. "
-                "Excluded runs remain visible in the all-run summaries above."
+                "Only matched scenario-hash/seed pairs where both simulations reached the "
+                "horizon are used. Unresolved jobs remain part of each run's workload metrics."
             ),
             "",
             "| Policy | Paired seeds | Throughput delta | SLA delta | Deadline miss-rate delta | Energy delta kWh |",
@@ -540,40 +612,108 @@ def render_suite_report(result: dict[str, Any]) -> str:
         f"- Run count: `{len(result['runs'])}`",
         f"- Live inference enabled: `{result['live_model_enabled']}`",
         "",
-        "All energy and cost figures are synthetic; policies are paired by seed and scenario hash.",
-        "Intervals are descriptive bootstrap summaries over independent scenario-seed runs, not jobs or ticks.",
+        "All workload, topology, power, energy, and price data are synthetic. A completed run means the simulator reached its fixed horizon without an exception; it does not mean the workload queue drained.",
+        "Primary horizons are fixed per scenario version and are not extended for a favored policy. Descriptive bootstrap intervals use matched independent scenario-seed runs; they are omitted below five valid pairs.",
         "",
     ]
     for scenario_id, scenario in result["scenarios"].items():
+        def ratio(numerator: int, denominator: int) -> str:
+            if denominator == 0:
+                return "n/a"
+            return f"{numerator}/{denominator} ({numerator / denominator:.1%})"
+
         lines.extend(
             [
                 f"## {scenario['configuration']['name']} (`{scenario_id}`)",
                 "",
                 scenario["configuration"]["intended_stress"],
                 "",
-                "| Policy | Runs | Completed | Failed | Incomplete | Throughput jobs/hour | SLA attainment | Energy kWh |",
-                "|---|---:|---:|---:|---:|---:|---:|---:|",
+                f"Horizon: {scenario['configuration']['max_steps']} steps. {scenario['configuration']['horizon_rationale']}",
+                "",
+                "| Policy | Run status (complete/failed/incomplete) | Completed / all workloads | Operational failures | Cancelled | Permanently infeasible | Unresolved at horizon | Full-set completion | Feasible completion | Deadline misses / due | Deadline attained | Starved | Node failures / recoveries / requeues / preemptions | Resource / power rejections | Throughput jobs/hour | Queue wait min | Turnaround min | Energy kWh / estimated cost | Paired n vs resource-aware |",
+                "|---|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|---:|",
             ]
         )
         for policy, summary in scenario["comparison"].items():
+            totals = summary["workload_totals"]
             metrics = summary["metrics"]
+            paired = scenario["paired_comparison_vs_resource_aware"].get(policy)
+            status_counts = summary["run_status_counts"]
+            def mean(
+                metric: str, metric_values: dict[str, Any] = metrics
+            ) -> str:
+                value = metric_values[metric]["mean"]
+                return "n/a" if value is None else str(value)
+
+            pair_n = (
+                paired["mean_policy_minus_resource_aware"][
+                    "throughput_jobs_per_hour"
+                ]["n"]
+                if paired
+                else "—"
+            )
             lines.append(
-                f"| {policy} | {summary['run_count']} | {summary['successful_run_count']} "
-                f"| {summary['failed_run_count']} | {summary['incomplete_run_count']} "
-                f"| {metrics['throughput_jobs_per_hour']['mean']} "
-                f"| {metrics['sla_attainment_rate']['mean']} "
-                f"| {metrics['estimated_energy_kwh']['mean']} |"
+                f"| {policy} | {status_counts.get('completed', 0)}/{status_counts.get('failed', 0)}/{status_counts.get('incomplete', 0)} "
+                f"| {totals['completed_workloads']}/{totals['total_workloads']} "
+                f"| {totals['execution_failed_workloads']} "
+                f"| {totals['cancelled_workloads']} "
+                f"| {totals['permanently_infeasible_workloads']} "
+                f"| {totals['horizon_incomplete_workloads']} "
+                f"| {ratio(totals['completed_workloads'], totals['total_workloads'])} "
+                f"| {ratio(totals['feasible_completed_workloads'], totals['feasible_workloads'])} "
+                f"| {ratio(totals['deadline_misses'], totals['deadline_miss_denominator'])} "
+                f"| {ratio(totals['deadline_attained_workloads'], totals['deadline_attainment_denominator'])} "
+                f"| {totals['starved_workloads']} "
+                f"| {totals['failed_nodes']}/{totals['recovered_nodes']}/{totals['workloads_requeued']}/{totals['workloads_preempted']} "
+                f"| {totals['resource_rejections']}/{totals['node_power_rejections'] + totals['facility_power_rejections']} "
+                f"| {mean('throughput_jobs_per_hour')} "
+                f"| {mean('average_queue_wait_minutes')} "
+                f"| {mean('average_turnaround_minutes')} "
+                f"| {mean('estimated_energy_kwh')} / {mean('estimated_energy_cost')} "
+                f"| {pair_n} |"
             )
         lines.extend(
             [
                 "",
                 (
-                    "Paired mean deltas use only successfully completed matching "
-                    "seed/hash pairs; failed and incomplete runs are listed above "
-                    "and retained in JSON/CSV."
+                    "Workload totals in this table pool successful fixed-horizon runs; "
+                    "failed simulation records and their partial state remain available in JSON/CSV. "
+                    "Run-status counts are separate from workload statuses. The full-set "
+                    "completion denominator includes every materialized workload, including "
+                    "infeasible and not-yet-arrived jobs. Feasible completion uses all "
+                    "structurally placeable scenario workloads. Deadline-miss denominator "
+                    "counts deadlines that elapsed or completed late; deadline attainment "
+                    "uses all submitted workloads with deadlines. Post-deadline work remains "
+                    "eligible. Cost is an estimate from the configured synthetic energy rate."
                 ),
                 "",
-                "| Policy vs resource-aware | Paired n | Throughput delta (95% CI) | SLA delta (95% CI) | Energy delta kWh (95% CI) |",
+                "| Policy | Primary unresolved outcome classification (count) |",
+                "|---|---|",
+            ]
+        )
+        for policy, summary in scenario["comparison"].items():
+            reasons = summary["horizon_incomplete_reason_totals"] or {}
+            rendered_reasons = ", ".join(
+                f"{reason}: {count}" for reason, count in reasons.items()
+            ) or "none"
+            lines.append(f"| {policy} | {rendered_reasons} |")
+        lines.extend(
+            [
+                "",
+                "| Policy | Last actionable blocker for unresolved workloads (count) |",
+                "|---|---|",
+            ]
+        )
+        for policy, summary in scenario["comparison"].items():
+            reasons = summary["horizon_incomplete_blocking_reason_totals"] or {}
+            rendered_reasons = ", ".join(
+                f"{reason}: {count}" for reason, count in reasons.items()
+            ) or "none"
+            lines.append(f"| {policy} | {rendered_reasons} |")
+        lines.extend(
+            [
+                "",
+                "| Policy vs resource-aware | Valid paired n | Throughput delta (95% descriptive CI) | Deadline-attainment delta (95% descriptive CI) | Energy delta kWh (95% descriptive CI) |",
                 "|---|---:|---|---|---|",
             ]
         )
@@ -583,9 +723,9 @@ def render_suite_report(result: dict[str, Any]) -> str:
             deltas = comparison["mean_policy_minus_resource_aware"]
 
             lines.append(
-                f"| {policy} | {comparison['paired_successful_seed_count']} "
+                f"| {policy} | {comparison['paired_successful_run_count']} "
                 f"| {_format_delta(deltas, 'throughput_jobs_per_hour')} "
-                f"| {_format_delta(deltas, 'sla_attainment_rate')} "
+                f"| {_format_delta(deltas, 'deadline_attainment_rate')} "
                 f"| {_format_delta(deltas, 'estimated_energy_kwh')} |"
             )
         lines.append("")

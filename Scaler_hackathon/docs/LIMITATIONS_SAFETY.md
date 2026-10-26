@@ -17,7 +17,7 @@ presented as telemetry or a real cloud invoice.
 | API key | Leakage in logs, frontend, or results | Server environment only, no `VITE_*` key, log sanitized error class, no prompt/header/key persistence |
 | Export route | Arbitrary filesystem path traversal | API exports only the in-memory latest benchmark to a fixed CSV response; CLI output directory is an operator-selected local path |
 | Concurrent requests | Conflicting mutation of shared simulator | Process-local lock; documented single-process/single-session limitation |
-| Dashboard | Misleading live/model metrics | Simulation-only badge, explicit live-inference toggle, fallback trace, synthetic-energy labels, and separate benchmark statuses |
+| Dashboard | Misleading live/model metrics or hiding unfinished work | Simulation-only badge, explicit live-inference toggle, fallback trace, estimated-energy labels, full workload denominators, unresolved/infeasible counts, and execution status separated from workload outcomes |
 
 ## Known constraints
 
@@ -26,6 +26,23 @@ presented as telemetry or a real cloud invoice.
   distributed coordination.
 - Node-failure probabilities, recovery durations, GPU capacity, power
   coefficients, energy tariffs, and workloads are synthetic assumptions.
+- The benchmark's fixed horizon is an evaluation budget, not a guarantee that
+  every workload will complete. `completed` run status means only that the
+  simulation reached its horizon without an exception. Infeasible, failed,
+  deadline-missed, and horizon-unresolved workloads remain visible in the
+  denominators and JSON/CSV evidence.
+- Structural infeasibility is distinguished from temporary GPU/memory
+  contention, power reservations, node recovery, missed deadlines, and
+  unexplained scheduler deferral. The 30-minute starvation metric excludes
+  jobs with a recorded resource or policy reason. See
+  [`BENCHMARK_METHODOLOGY.md`](./BENCHMARK_METHODOLOGY.md) for precedence and
+  the reproduced scenario diagnoses.
+- The primary horizons are not enlarged to improve a policy's scores. A
+  separate 2x-horizon diagnostic continuation showed that some resource-
+  contention tails drain with more time, while combined failure stress can
+  remain unresolved and repeated failures can exhaust retries. That
+  diagnostic is not mixed into primary benchmark results and does not prove
+  that an operational scheduler would recover similarly.
 - There is no authentication, authorization, multi-tenant isolation, persistent
   storage, public deployment, or real infrastructure integration.
 - CLI scenario paths are local process arguments; do not expose an

@@ -31,8 +31,12 @@ def load_scenario_suite(path: str | Path = SCENARIO_SUITE_PATH) -> dict[str, Any
         if (
             item.get("topology_id") not in suite["topologies"]
             or item.get("workloads", {}).get("arrival_pattern") not in ARRIVAL_PATTERNS
+            or not isinstance(item.get("horizon_rationale"), str)
+            or not item["horizon_rationale"]
         ):
-            raise ValueError(f"Invalid topology or arrival pattern for {item.get('id')}")
+            raise ValueError(
+                f"Invalid topology, arrival pattern, or horizon rationale for {item.get('id')}"
+            )
     return suite
 
 
@@ -120,6 +124,7 @@ def materialize_scenario(
         "name": definition["name"],
         "description": definition["description"],
         "intended_stress": definition["intended_stress"],
+        "horizon_rationale": definition["horizon_rationale"],
         "scenario_id": definition["id"],
         "scenario_version": suite["suite_version"],
         "suite_id": suite["suite_id"],

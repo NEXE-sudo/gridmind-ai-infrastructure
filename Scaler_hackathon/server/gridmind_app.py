@@ -243,6 +243,7 @@ def scenarios() -> dict[str, Any]:
                     "failure_probability",
                     "recovery_steps",
                     "max_steps",
+                    "horizon_rationale",
                 )
             }
             for item in suite["scenarios"]
@@ -283,6 +284,7 @@ def reset(req: ResetRequest) -> dict[str, Any]:
 @app.post("/step")
 def step(req: StepRequest) -> dict[str, Any]:
     with operation_lock:
+        sim.horizon_steps = None
         result = sim.apply_action(req.assignments, req.preempt, req.cancel)
         recent_runs.append(
             {
@@ -310,6 +312,7 @@ def run(req: RunRequest) -> dict[str, Any]:
     with operation_lock:
         history = []
         run_id = str(uuid4())
+        sim.horizon_steps = sim.step_count + req.steps
         for _ in range(req.steps):
             result = execute_policy_step(
                 sim,
@@ -317,17 +320,13 @@ def run(req: RunRequest) -> dict[str, Any]:
                 use_live_model=req.use_live_model,
             )
             history.append(result)
-            if not any(
-                workload.status in {"pending", "running"}
-                for workload in sim.workloads
-            ):
-                break
         record = {
             "run_id": run_id,
             "kind": "simulation",
             "policy": req.policy,
             "seed": sim.seed,
             "status": "completed",
+            "termination_reason": "requested_horizon_reached",
             "steps_executed": len(history),
             "metrics": sim.state()["metrics"],
             "fallback_used": any(item["fallback_used"] for item in history),

@@ -54,6 +54,11 @@ def test_policy_experiments_use_identical_scenarios_and_export_results(tmp_path)
     assert len(rows) == 8
     assert b"\r\n" not in Path(paths["csv"]).read_bytes()
     assert Path(paths["markdown"]).read_text().startswith("# GridMind experiment report")
+    assert all(
+        run["steps_executed"] == config["max_steps"]
+        and run["termination_reason"] == "fixed_horizon_reached"
+        for run in result["runs"]
+    )
     assert result["paired_comparison_vs_resource_aware"]["fifo"][
         "paired_successful_seed_count"
     ] == 2
@@ -94,9 +99,9 @@ def test_offline_ai_records_fallback_without_inference_request(monkeypatch):
     assert sim.counters["ai_fallbacks"] > 0
 
 
-def test_versioned_scenario_suite_is_paired_and_reproducible():
+def test_versioned_scenario_suite_is_paired_and_reproducible(tmp_path):
     suite = load_scenario_suite()
-    assert suite["suite_version"] == "1.0.0"
+    assert suite["suite_version"] == "1.1.0"
     assert len(suite["scenarios"]) == 10
 
     first = run_scenario_suite(
@@ -117,6 +122,10 @@ def test_versioned_scenario_suite_is_paired_and_reproducible():
             ]
             assert len({run["scenario_sha256"] for run in paired}) == 1
             assert all(run["history_included"] is False for run in paired)
+            assert len({run["exogenous_failure_trace_sha256"] for run in paired}) == 1
+            assert paired[0]["exogenous_failure_trace"] == paired[1][
+                "exogenous_failure_trace"
+            ]
             assert [
                 run["scenario_sha256"] for run in paired
             ] == [
@@ -125,6 +134,12 @@ def test_versioned_scenario_suite_is_paired_and_reproducible():
                 if run["scenario_id"] == scenario_id and run["seed"] == seed
             ]
         assert scenario["configuration"]["synthetic_assumptions"] is True
+    first_paths = write_results(first, tmp_path / "first")
+    second_paths = write_results(second, tmp_path / "second")
+    assert Path(first_paths["csv"]).read_bytes() == Path(second_paths["csv"]).read_bytes()
+    assert Path(first_paths["markdown"]).read_bytes() == Path(
+        second_paths["markdown"]
+    ).read_bytes()
 
 
 def test_seed_changes_materialized_workload_arrivals_for_scenario_suite():
@@ -141,15 +156,23 @@ def test_seed_changes_materialized_workload_arrivals_for_scenario_suite():
     ]
 
 
-def test_failed_and_incomplete_policy_runs_remain_in_summaries(monkeypatch):
+def test_horizon_incomplete_work_is_not_an_incomplete_execution(monkeypatch):
     from server import benchmarks
 
     config = load_config(CONFIG_PATH)
     config["max_steps"] = 1
     config["arrival_jitter_steps"] = 0
-    result = run_experiments(config, [9], policies=["fifo"])
-    assert result["runs"][0]["status"] == "incomplete"
-    assert result["comparison"]["fifo"]["incomplete_run_count"] == 1
+    result = run_experiments(
+        config, [9], policies=["fifo", "resource_aware"]
+    )
+    assert result["runs"][0]["status"] == "completed"
+    assert result["runs"][0]["steps_executed"] == 1
+    assert result["runs"][0]["metrics"]["horizon_incomplete_workloads"] > 0
+    assert result["comparison"]["fifo"]["incomplete_run_count"] == 0
+    assert result["comparison"]["fifo"]["successful_run_count"] == 1
+    assert result["paired_comparison_vs_resource_aware"]["fifo"][
+        "paired_successful_run_count"
+    ] == 1
 
     monkeypatch.setattr(
         benchmarks,
@@ -190,3 +213,44 @@ def test_policies_share_same_exogenous_node_failure_trace():
         for step in resource_aware["history"]
     ]
     assert fifo_trace == aware_trace
+    assert fifo["exogenous_failure_trace"] == resource_aware["exogenous_failure_trace"]
+    assert (
+        fifo["exogenous_failure_trace_sha256"]
+        == resource_aware["exogenous_failure_trace_sha256"]
+    )
+
+
+def test_paired_comparison_accepts_horizon_outcomes_but_excludes_failed_runs():
+    from server.benchmarks import paired_comparison
+
+    def record(policy, seed, status, value):
+        return {
+            "policy": policy,
+            "seed": seed,
+            "scenario_sha256": f"scenario-{seed}",
+            "status": status,
+            "metrics": {
+                "throughput_jobs_per_hour": value,
+                "completion_rate_scenario_denominator": value,
+                "feasible_scenario_completion_rate": value,
+                "deadline_miss_rate": None,
+                "deadline_attainment_rate": value,
+                "sla_attainment_rate": value,
+                "estimated_energy_kwh": value,
+                "estimated_energy_cost": value,
+                "average_queue_wait_minutes": None,
+            },
+        }
+
+    records = [
+        record("resource_aware", 1, "completed", 1.0),
+        record("fifo", 1, "completed", 0.5),
+        record("resource_aware", 2, "failed", 1.0),
+        record("fifo", 2, "completed", 0.25),
+    ]
+    paired = paired_comparison(records, ["fifo", "resource_aware"])["fifo"]
+    assert paired["paired_successful_run_count"] == 1
+    assert paired["mean_policy_minus_resource_aware"][
+        "throughput_jobs_per_hour"
+    ]["n"] == 1
+    assert paired["excluded_failed_or_incomplete_baseline_runs"] == 1

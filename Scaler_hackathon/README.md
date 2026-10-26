@@ -39,8 +39,12 @@ uv run --locked python -m server.benchmarks \
 ```
 
 The suite runs every selected policy against the same seeded workloads and
-exogenous failure trace within each scenario. Five seeds enable the configured
-run-level bootstrap interval; they are still a small, synthetic sample, not a
+complete exogenous failure trace for each scenario. `completed` means the
+simulation reached its fixed horizon; it does not mean that every workload
+finished. Reports retain all materialized jobs in the full-set denominator,
+show feasible-workload completion separately, and distinguish permanent
+infeasibility from unresolved horizon outcomes and their scheduler blockers.
+Five seeds permit a descriptive paired bootstrap interval, not a reliable
 general performance claim. The command writes `results.json`, `runs.csv`, and
 `report.md`. Nemotron is offline in this sample and uses deterministic fallback.
 

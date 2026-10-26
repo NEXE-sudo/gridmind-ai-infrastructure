@@ -61,6 +61,7 @@ describe("GridMindConsole", () => {
               proposed_assignments: {},
               executed_assignments: {},
               proposal_validation_rejections: [],
+              scheduling_diagnostics: [],
               rejected_actions: [],
               fallback_used: false,
             }],

@@ -1,5 +1,6 @@
 
 from server.datacenter_simulator import DatacenterSimulator, Node, Workload
+from server.decision import execute_policy_step
 from server.metrics import (
     aggregate_runs,
     bootstrap_mean_interval,
@@ -54,7 +55,7 @@ def test_percentile_uses_linear_interpolation_and_empty_values():
     assert percentile([1, 2, 3, 4], 0.95) == 3.85
 
 
-def test_aggregate_retains_failed_and_incomplete_run_counts():
+def test_aggregate_separates_execution_status_from_workload_outcomes():
     runs = [
         {
             "status": "completed",
@@ -74,8 +75,9 @@ def test_aggregate_retains_failed_and_incomplete_run_counts():
     assert summary["successful_run_count"] == 1
     assert summary["failed_run_count"] == 1
     assert summary["incomplete_run_count"] == 1
-    assert summary["metrics"]["throughput_jobs_per_hour"]["n"] == 2
-    assert summary["metrics"]["throughput_jobs_per_hour"]["mean"] == 6
+    assert summary["metrics_include_successful_runs_only"] is True
+    assert summary["metrics"]["throughput_jobs_per_hour"]["n"] == 1
+    assert summary["metrics"]["throughput_jobs_per_hour"]["mean"] == 10
     assert summary["metrics"]["ai_latency_ms_mean"]["n"] == 0
 
 
@@ -84,11 +86,22 @@ def test_starvation_infeasibility_and_class_fairness_metrics():
         nodes=[Node("tiny", 1, 16, 2.0, gpu_model="NVIDIA T4")],
         workloads=[
             Workload(
+                "blocker",
+                "Active blocker",
+                1,
+                8,
+                80,
+                status="running",
+                node_id="tiny",
+                remaining=80,
+                started_at=0,
+            ),
+            Workload(
                 "waiting",
                 "Long wait",
                 1,
                 8,
-                80,
+                1,
                 submission_time=0,
                 workload_class="inference",
             ),
@@ -104,15 +117,51 @@ def test_starvation_infeasibility_and_class_fairness_metrics():
         ],
     )
     for _ in range(31):
-        sim.apply_action()
+        execute_policy_step(sim, "resource_aware")
 
     metrics = calculate_metrics(sim)
-    assert metrics["starved_workloads"] == 1
-    assert metrics["infeasible_pending_workloads"] == 1
+    assert metrics["starved_workloads"] == 0
+    assert metrics["infeasible_pending_workloads"] == 0
+    assert metrics["permanently_infeasible_workloads"] == 1
+    assert metrics["workload_outcome_classifications"]["waiting"] == (
+        "temporary_capacity_contention"
+    )
     assert metrics["completion_rate_by_workload_class"] == {
+        "general": 0.0,
         "inference": 0.0,
         "training": 0.0,
     }
+
+
+def test_horizon_counts_include_not_yet_arrived_scenario_workloads():
+    sim = DatacenterSimulator(
+        nodes=[Node("n", 1, 16, 1.0, idle_kw=0, per_gpu_kw=0.5)],
+        workloads=[
+            Workload(
+                "late",
+                "arrives after horizon",
+                1,
+                8,
+                1,
+                submission_time=2,
+                submitted=False,
+            )
+        ],
+        horizon_steps=2,
+    )
+    sim.apply_action()
+    sim.apply_action()
+    metrics = calculate_metrics(sim)
+
+    assert metrics["submitted_workloads"] == 0
+    assert metrics["total_workloads"] == 1
+    assert metrics["completion_rate"] is None
+    assert metrics["completion_rate_scenario_denominator"] == 0.0
+    assert metrics["horizon_incomplete_workload_ids"] == ["late"]
+    assert metrics["horizon_incomplete_reason_counts"] == {
+        "arrival_after_horizon": 1
+    }
+    assert sum(metrics["workload_status_counts"].values()) == 1
 
 
 def test_bootstrap_interval_is_deterministic_and_requires_independent_samples():

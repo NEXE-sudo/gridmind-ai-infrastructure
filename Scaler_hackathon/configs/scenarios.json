@@ -1,6 +1,6 @@
 {
   "suite_id": "gridmind-operations-scenarios",
-  "suite_version": "1.0.0",
+  "suite_version": "1.1.0",
   "synthetic": true,
   "topologies": {
     "heterogeneous-mixed": [
@@ -34,6 +34,7 @@
       "failure_probability": 0.02,
       "recovery_steps": 1,
       "max_steps": 60,
+      "horizon_rationale": "Fixed 60-minute primary evaluation window; the staggered arrivals and 18-minute maximum nominal duration leave substantial service margin, but the horizon is not a drain-to-empty guarantee.",
       "workloads": {"count": 10, "arrival_pattern": "staggered", "gpu_counts": [1, 2, 1, 4], "memory_gb": [12, 40, 8, 44], "durations": [3, 12, 6, 18], "priorities": [5, 3, 2, 2], "deadline_after_minutes": [8, 30, 24, 48]}
     },
     {
@@ -47,6 +48,7 @@
       "failure_probability": 0.0,
       "recovery_steps": 1,
       "max_steps": 75,
+      "horizon_rationale": "Fixed 75-minute primary evaluation window preserves three burst waves and a long post-arrival service window; it measures backlog recovery without extending selectively for any policy.",
       "workloads": {"count": 18, "arrival_pattern": "burst", "gpu_counts": [1, 2, 1, 4], "memory_gb": [12, 40, 8, 44], "durations": [4, 14, 5, 20], "priorities": [3, 4, 2, 1], "deadline_after_minutes": [14, 35, 25, 55]}
     },
     {
@@ -60,6 +62,7 @@
       "failure_probability": 0.0,
       "recovery_steps": 1,
       "max_steps": 70,
+      "horizon_rationale": "Fixed 70-minute primary evaluation window spans the staggered queue and 65-minute maximum nominal deadline; it evaluates deadline outcomes rather than promising that all jobs drain.",
       "workloads": {"count": 14, "arrival_pattern": "staggered", "gpu_counts": [1, 1, 2, 4], "memory_gb": [12, 16, 40, 44], "durations": [2, 4, 16, 24], "priorities": [5, 5, 2, 1], "deadline_after_minutes": [4, 8, 45, 65]}
     },
     {
@@ -73,6 +76,7 @@
       "failure_probability": 0.0,
       "recovery_steps": 1,
       "max_steps": 65,
+      "horizon_rationale": "Fixed 65-minute primary window exceeds the staggered arrival and maximum nominal service interval; structurally incompatible GPU/memory requests remain visible as infeasible, not as horizon failures.",
       "workloads": {"count": 12, "arrival_pattern": "staggered", "gpu_counts": [1, 2, 4], "memory_gb": [16, 40, 64], "durations": [4, 12, 20], "priorities": [5, 3, 2], "deadline_after_minutes": [10, 35, 55], "required_gpu_models": [null, "NVIDIA A100", "NVIDIA L40S"]}
     },
     {
@@ -86,6 +90,7 @@
       "failure_probability": 0.0,
       "recovery_steps": 1,
       "max_steps": 65,
+      "horizon_rationale": "Fixed 65-minute primary window provides service time beyond the 58-minute maximum nominal deadline while retaining the intentionally skewed memory topology; impossible placements are terminally diagnosed.",
       "workloads": {"count": 14, "arrival_pattern": "staggered", "gpu_counts": [1, 2, 3], "memory_gb": [20, 64, 88], "durations": [5, 12, 20], "priorities": [4, 3, 1], "deadline_after_minutes": [15, 35, 58]}
     },
     {
@@ -99,6 +104,7 @@
       "failure_probability": 0.0,
       "recovery_steps": 1,
       "max_steps": 70,
+      "horizon_rationale": "Fixed 70-minute primary window includes the 65-minute maximum nominal deadline and leaves time for post-deadline execution; facility power contention is intentionally not removed by extending the horizon.",
       "workloads": {"count": 12, "arrival_pattern": "staggered", "gpu_counts": [1, 2, 3], "memory_gb": [12, 28, 40], "durations": [6, 14, 22], "priorities": [4, 3, 1], "deadline_after_minutes": [18, 40, 65]}
     },
     {
@@ -112,6 +118,7 @@
       "failure_probability": 0.16,
       "recovery_steps": 3,
       "max_steps": 90,
+      "horizon_rationale": "Fixed 90-minute fault-injection window spans the 80-minute maximum nominal deadline and permits repeated three-step recovery cycles; stochastic failures may still leave valid work unresolved.",
       "workloads": {"count": 12, "arrival_pattern": "staggered", "gpu_counts": [1, 2, 4], "memory_gb": [12, 40, 44], "durations": [8, 18, 28], "priorities": [4, 3, 2], "deadline_after_minutes": [30, 55, 80]}
     },
     {
@@ -125,6 +132,7 @@
       "failure_probability": 0.0,
       "recovery_steps": 1,
       "max_steps": 90,
+      "horizon_rationale": "Fixed 90-minute contention window exposes the queueing burden of three simultaneous 60-minute, four-GPU jobs on two fitting nodes; the serialized service lower bound exceeds the horizon before later short jobs are included.",
       "workloads": {"count": 16, "arrival_pattern": "late_short_jobs", "gpu_counts": [4, 2, 1], "memory_gb": [44, 40, 16], "durations": [60, 35, 2], "priorities": [1, 2, 5], "deadline_after_minutes": [85, 70, 8]}
     },
     {
@@ -138,6 +146,7 @@
       "failure_probability": 0.0,
       "recovery_steps": 1,
       "max_steps": 45,
+      "horizon_rationale": "Fixed 45-minute primary window is designed to evaluate the feasible portion of the mixed queue; 12-GPU/512-GB requests exceed every node envelope and are reported as permanent infeasibilities.",
       "workloads": {"count": 10, "arrival_pattern": "balanced", "gpu_counts": [1, 2, 12], "memory_gb": [12, 40, 512], "durations": [4, 10, 20], "priorities": [5, 3, 1], "deadline_after_minutes": [12, 30, 40]}
     },
     {
@@ -151,6 +160,7 @@
       "failure_probability": 0.08,
       "recovery_steps": 2,
       "max_steps": 90,
+      "horizon_rationale": "Fixed 90-minute compound-stress window spans the 80-minute maximum nominal deadline while keeping bursts, power limits, model constraints, and seeded failures active; it is not extended to force queue drain.",
       "workloads": {"count": 18, "arrival_pattern": "burst", "gpu_counts": [1, 2, 3, 4], "memory_gb": [12, 28, 40, 48], "durations": [3, 12, 20, 35], "priorities": [5, 3, 2, 1], "deadline_after_minutes": [8, 32, 55, 80], "required_gpu_models": [null, "NVIDIA A100", "NVIDIA L40S"]}
     }
   ]

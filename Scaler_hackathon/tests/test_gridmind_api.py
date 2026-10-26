@@ -52,6 +52,8 @@ def test_reset_step_and_run_behaviour():
     assert step.json()["rejected_actions"] == []
     assert run.status_code == 200
     assert run.json()["steps_executed"] == 2
+    assert run.json()["termination_reason"] == "requested_horizon_reached"
+    assert run.json()["metrics"]["horizon_reached"] is True
     assert run.json()["history"][0]["decision"] == "resource_aware"
 
 
@@ -116,6 +118,13 @@ def test_scenario_catalog_and_scenario_benchmark_route():
     result = benchmark.json()
     assert result["scenario_id"] == "infeasible_workloads"
     assert all(run["scenario_id"] == "infeasible_workloads" for run in result["runs"])
+    run = result["runs"][0]
+    assert run["status"] == "completed"
+    assert run["metrics"]["permanently_infeasible_workloads"] == 3
+    assert sum(run["metrics"]["workload_status_counts"].values()) == (
+        run["metrics"]["total_workloads"]
+    )
+    assert run["termination_reason"] == "fixed_horizon_reached"
 
 
 def test_api_scenario_suite_is_bounded_and_exportable():

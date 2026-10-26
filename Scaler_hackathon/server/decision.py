@@ -5,7 +5,10 @@ from typing import Any
 
 from .datacenter_simulator import DatacenterSimulator
 from .nemotron import Proposal, request_proposal
-from .workload_scheduler import schedule
+from .workload_scheduler import (
+    diagnose_unassigned,
+    schedule_with_diagnostics,
+)
 
 POLICIES = ("fifo", "priority", "resource_aware", "nemotron")
 
@@ -18,10 +21,16 @@ def execute_policy_step(
 ) -> dict[str, Any]:
     if policy not in POLICIES:
         raise ValueError(f"Unsupported policy: {policy}")
-    arrived = sim.activate_arrivals()
+    preparation_events = sim.prepare_step()
+    arrived = [
+        event["workload_id"]
+        for event in preparation_events
+        if event["type"] in {"workload_arrived", "workload_failed"}
+    ]
     proposal: Proposal | None = None
     fallback_used = False
     validation_rejections: list[dict[str, str]] = []
+    scheduling_diagnostics: list[dict[str, Any]] = []
     if policy == "nemotron":
         queued = any(
             workload.status == "pending" and workload.submitted
@@ -68,15 +77,22 @@ def execute_policy_step(
 
         if fallback_used:
             sim.counters["ai_fallbacks"] += 1 if proposal and proposal.status != "offline" else 0
-            assignments = schedule(sim, "resource_aware")
+            assignments, scheduling_diagnostics = schedule_with_diagnostics(
+                sim, "resource_aware"
+            )
         elif proposal and proposal.used_model:
             assignments = proposal.assignments
+            scheduling_diagnostics = diagnose_unassigned(
+                sim, set(assignments), reason="model_proposal_omitted"
+            )
+        else:
+            assignments = {}
         decision = "resource_aware_fallback" if fallback_used else (
             "nemotron" if proposal and proposal.used_model else "nemotron_no_work"
         )
         rationale = proposal.explanation if proposal else "Deterministic fallback."
     else:
-        assignments = schedule(sim, policy)
+        assignments, scheduling_diagnostics = schedule_with_diagnostics(sim, policy)
         decision = policy
         rationale = {
             "fifo": "Earliest submitted eligible workload first; placement respects fit.",
@@ -86,7 +102,8 @@ def execute_policy_step(
             ),
         }[policy]
 
-    result = sim.apply_action(assignments)
+    sim.record_scheduling_diagnostics(scheduling_diagnostics)
+    result = sim.apply_action(assignments, prepared_events=preparation_events)
     result.update(
         {
             "decision": decision,
@@ -100,6 +117,7 @@ def execute_policy_step(
             "proposal_latency_ms": proposal.latency_ms if proposal else None,
             "proposal_error_code": proposal.error_code if proposal else None,
             "proposal_validation_rejections": validation_rejections,
+            "scheduling_diagnostics": scheduling_diagnostics,
             "fallback_used": fallback_used,
             "arrivals": arrived,
         }
