@@ -164,7 +164,7 @@ def _skip_diagnostic(
 def schedule_with_diagnostics(
     sim: DatacenterSimulator,
     policy: PolicyName | str = "resource_aware",
-) -> tuple[dict[str, str], list[dict[str, Any]]]:
+) -> tuple[dict[str, str], list[dict[str, Any]], list[dict[str, Any]]]:
     pending = _ordered_pending(sim, policy)
     reserved = {
         node.id: [node.allocated_gpus, node.allocated_memory_gb]
@@ -173,27 +173,80 @@ def schedule_with_diagnostics(
     projected_power = sim.estimated_total_power_kw()
     assignments: dict[str, str] = {}
     diagnostics: list[dict[str, Any]] = []
-    for workload in pending:
-        options = []
+    placement_diagnostics: list[dict[str, Any]] = []
+    for queue_rank, workload in enumerate(pending, start=1):
+        options: list[dict[str, Any]] = []
         for node in sim.nodes:
             if _node_reason(
                 sim, workload, node, reserved[node.id], projected_power
             ) is None:
-                fill = (reserved[node.id][0] + workload.gpu_count) / node.gpu_count
+                projected_gpu_fill = (
+                    reserved[node.id][0] + workload.gpu_count
+                ) / node.gpu_count
                 power_delta = node.per_gpu_kw * workload.gpu_count
-                options.append((fill, node.id, power_delta))
+                options.append(
+                    {
+                        "node_id": node.id,
+                        "projected_gpu_fill": round(projected_gpu_fill, 6),
+                        "_projected_gpu_fill": projected_gpu_fill,
+                        "free_gpus_before": node.gpu_count - reserved[node.id][0],
+                        "free_memory_gb_before": (
+                            node.memory_gb - reserved[node.id][1]
+                        ),
+                        "power_delta_kw": round(power_delta, 6),
+                        "_power_delta_kw": power_delta,
+                        "projected_node_power_kw": round(
+                            node.idle_kw
+                            + node.per_gpu_kw
+                            * (reserved[node.id][0] + workload.gpu_count),
+                            6,
+                        ),
+                        "projected_facility_power_kw": round(
+                            projected_power + power_delta, 6
+                        ),
+                    }
+                )
         if not options:
             diagnostics.append(
                 _skip_diagnostic(sim, workload, reserved, projected_power)
             )
             continue
-        _, node_id, power_delta = max(options, key=lambda option: (option[0], option[1]))
+        selected = max(
+            options,
+            key=lambda option: (
+                option["_projected_gpu_fill"],
+                option["node_id"],
+            ),
+        )
+        node_id = selected["node_id"]
+        power_delta = selected["_power_delta_kw"]
+        for option in options:
+            option["selected"] = option["node_id"] == node_id
+        candidate_nodes = [
+            {key: value for key, value in option.items() if not key.startswith("_")}
+            for option in options
+        ]
         node = next(node for node in sim.nodes if node.id == node_id)
         reserved[node_id][0] += workload.gpu_count
         reserved[node_id][1] += workload.memory_gb
         projected_power += power_delta
         assignments[workload.id] = node.id
-    return assignments, diagnostics
+        placement_diagnostics.append(
+            {
+                "workload_id": workload.id,
+                "node_id": node_id,
+                "assignment_source": "deterministic_scheduler",
+                "policy": policy,
+                "queue_rank": queue_rank,
+                "priority": workload.priority,
+                "deadline_step": workload.deadline,
+                "selection_rule": (
+                    "max_post_placement_gpu_fill_then_lexicographically_largest_node_id"
+                ),
+                "candidate_nodes": candidate_nodes,
+            }
+        )
+    return assignments, diagnostics, placement_diagnostics
 
 
 def diagnose_unassigned(

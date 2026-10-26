@@ -4,7 +4,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from server import gridmind_app
-from server.datacenter_simulator import DatacenterSimulator
+from server.datacenter_simulator import DatacenterSimulator, Node, Workload
 from server.decision import Proposal
 
 
@@ -55,6 +55,69 @@ def test_reset_step_and_run_behaviour():
     assert run.json()["termination_reason"] == "requested_horizon_reached"
     assert run.json()["metrics"]["horizon_reached"] is True
     assert run.json()["history"][0]["decision"] == "resource_aware"
+
+
+def test_run_and_history_expose_structured_scheduler_placement_evidence():
+    gridmind_app.sim = DatacenterSimulator(
+        seed=9,
+        power_budget_kw=5,
+        nodes=[
+            Node("wide", 4, 64, 4.0, idle_kw=0.2, per_gpu_kw=0.5),
+            Node("compact", 2, 32, 2.0, idle_kw=0.1, per_gpu_kw=0.4),
+        ],
+        workloads=[Workload("job", "Trace target", 1, 8, 2, priority=3)],
+    )
+
+    with TestClient(gridmind_app.app) as client:
+        run = client.post(
+            "/run", json={"policy": "resource_aware", "steps": 1}
+        )
+        history = client.get("/history?limit=1")
+
+    assert run.status_code == 200
+    trace = run.json()["history"][0]["placement_diagnostics"]
+    assert trace[0]["workload_id"] == "job"
+    assert trace[0]["node_id"] == "compact"
+    assert trace[0]["assignment_source"] == "deterministic_scheduler"
+    assert [candidate["node_id"] for candidate in trace[0]["candidate_nodes"]] == [
+        "wide",
+        "compact",
+    ]
+    assert history.status_code == 200
+    assert history.json()["runs"][0]["decision_trace"][-1][
+        "placement_diagnostics"
+    ] == trace
+
+
+def test_model_placement_is_labeled_validated_without_scheduler_ranking(monkeypatch):
+    gridmind_app.sim = DatacenterSimulator(
+        seed=10,
+        power_budget_kw=3,
+        nodes=[Node("gpu", 2, 32, 2.0, idle_kw=0.1, per_gpu_kw=0.5)],
+        workloads=[Workload("job", "Model target", 1, 8, 2)],
+    )
+    monkeypatch.setenv("NEBIUS_API_KEY", "test-key")
+    monkeypatch.setenv("GRIDMIND_MODEL", "nvidia/test-model")
+    monkeypatch.setattr(
+        "server.decision.request_proposal",
+        lambda _: Proposal({"job": "gpu"}, "Model-selected GPU.", "model"),
+    )
+
+    with TestClient(gridmind_app.app) as client:
+        response = client.post(
+            "/run",
+            json={"policy": "nemotron", "steps": 1, "use_live_model": True},
+        )
+
+    assert response.status_code == 200
+    placement = response.json()["history"][0]["placement_diagnostics"][0]
+    assert placement["assignment_source"] == "validated_model_proposal"
+    assert placement["simulator_constraints_validated"] is True
+    assert placement["selection_rule"] == "model_proposed_node"
+    assert placement["candidate_evaluation"] == (
+        "not_performed_by_deterministic_scheduler"
+    )
+    assert "candidate_nodes" not in placement
 
 
 def test_reset_scenario_controls_create_reproducible_simulations():
@@ -222,6 +285,10 @@ def test_invalid_nemotron_assignment_uses_and_reports_safe_fallback(monkeypatch)
     assert result["fallback_used"] is True
     assert result["history"][0]["decision"] == "resource_aware_fallback"
     assert result["history"][0]["rejected_actions"] == []
+    assert all(
+        placement["assignment_source"] == "deterministic_scheduler"
+        for placement in result["history"][0]["placement_diagnostics"]
+    )
 
 
 def test_valid_nemotron_assignment_is_applied_without_fallback(monkeypatch):

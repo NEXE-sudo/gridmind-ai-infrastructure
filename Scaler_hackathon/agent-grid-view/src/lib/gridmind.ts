@@ -132,8 +132,32 @@ export interface DecisionRecord {
     reason: string;
     node_reasons: Record<string, string | null>;
   }>;
+  placement_diagnostics: PlacementDiagnostic[];
   rejected_actions: Array<{ workload_id: string; reason: string }>;
   fallback_used: boolean;
+}
+
+export interface PlacementDiagnostic {
+  workload_id: string;
+  node_id: string;
+  assignment_source: "deterministic_scheduler" | "validated_model_proposal";
+  policy?: string;
+  queue_rank?: number;
+  priority?: number;
+  deadline_step?: number | null;
+  selection_rule: string;
+  simulator_constraints_validated?: boolean;
+  candidate_evaluation?: string;
+  candidate_nodes?: Array<{
+    node_id: string;
+    projected_gpu_fill: number;
+    free_gpus_before: number;
+    free_memory_gb_before: number;
+    power_delta_kw: number;
+    projected_node_power_kw: number;
+    projected_facility_power_kw: number;
+    selected: boolean;
+  }>;
 }
 
 export interface RunRecord {
@@ -145,6 +169,7 @@ export interface RunRecord {
   metrics: OperationalMetrics;
   created_at?: string;
   scenario_sha256?: string;
+  decision_trace?: DecisionRecord[];
 }
 
 export interface BenchmarkRun {

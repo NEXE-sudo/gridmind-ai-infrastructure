@@ -143,6 +143,10 @@ export default function GridMindConsole() {
         setScenario(nextState.scenario ?? "balanced");
         setReady(nextReady);
         setHistory(nextHistory.runs);
+        const latestTrace = nextHistory.runs.find(
+          (run) => run.decision_trace?.length,
+        )?.decision_trace;
+        if (latestTrace) setDecisionLog([...latestTrace].reverse());
       })
       .catch((cause: unknown) => {
         if (active) setError(cause instanceof Error ? cause.message : "Could not connect to GridMind API.");
@@ -203,7 +207,9 @@ export default function GridMindConsole() {
             use_live_model: useLiveModel,
           }),
         });
-        setDecisionLog((previous) => [...result.history, ...previous].slice(0, 20));
+        setDecisionLog((previous) =>
+          [...result.history].reverse().concat(previous).slice(0, 20),
+        );
         return result.fallback_used
           ? `Completed ${result.steps_executed} step(s); Nemotron used deterministic fallback.`
           : `Completed ${result.steps_executed} step(s) using ${policy}.`;
@@ -420,6 +426,39 @@ export default function GridMindConsole() {
                           {Object.entries(decision.executed_assignments).map(([job, node]) => <span key={job}>{job}<b>→</b>{node}</span>)}
                           {!Object.keys(decision.executed_assignments).length && <span className="empty-inline">No placements this step</span>}
                         </div>
+                        {decision.placement_diagnostics.length > 0 && (
+                          <div className="placement-evidence" aria-label="Placement evidence">
+                            {decision.placement_diagnostics.map((placement) => (
+                              <div key={placement.workload_id}>
+                                <p><strong>{placement.workload_id} → {placement.node_id}</strong></p>
+                                {placement.assignment_source === "deterministic_scheduler" ? (
+                                  <>
+                                    <small>
+                                      Queue rank {placement.queue_rank} · priority P{placement.priority}
+                                      {placement.deadline_step == null ? "" : ` · deadline t+${placement.deadline_step}`}
+                                    </small>
+                                    <small>Rule: {placement.selection_rule.replace(/_/g, " ")}</small>
+                                    <ul>
+                                      {(placement.candidate_nodes ?? []).map((candidate) => (
+                                        <li key={candidate.node_id}>
+                                          {candidate.node_id}{candidate.selected ? " — selected" : ""}
+                                          {" · "}GPU fill {formatPercent(candidate.projected_gpu_fill)}
+                                          {" · "}power +{formatNumber(candidate.power_delta_kw)} kW
+                                          {" · "}facility after {formatNumber(candidate.projected_facility_power_kw)} kW
+                                        </li>
+                                      ))}
+                                    </ul>
+                                  </>
+                                ) : (
+                                  <small>
+                                    Model-proposed node; simulator resource and power constraints validated.
+                                    Deterministic candidate ranking was not performed.
+                                  </small>
+                                )}
+                              </div>
+                            ))}
+                          </div>
+                        )}
                         {decision.proposal_validation_rejections.length > 0 && (
                           <p className="rejection-note"><AlertTriangle size={13} /> Proposal rejected by simulator checks: {decision.proposal_validation_rejections.map((item) => `${item.workload_id} (${item.reason})`).join(", ")}</p>
                         )}

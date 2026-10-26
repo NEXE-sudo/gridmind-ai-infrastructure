@@ -8,8 +8,9 @@ Update this file in every PR. Keep entries factual and evidence-based.
 |---|---|---|---|
 | [#1](https://github.com/NEXE-sudo/gridmind-ai-infrastructure/pull/1) | P0–P1 | Plan, workflow, simulator, schedulers, guarded Nemotron proposal path, API, tests | Squash-merged 2026-10-26 as `5ebc47ca8395c67aacd754bbb66a824c42081727`; post-merge verification passed |
 | [#2](https://github.com/NEXE-sudo/gridmind-ai-infrastructure/pull/2) | P2–P7 | Complete GridMind simulation, metrics, paired-seed benchmark, dashboard, API, docs, and CI | Squash-merged 2026-10-26 as `966cfc6ae22cff284264f988e78b72ad2ac555f1`; post-merge CI and local verification passed |
-| [#3](https://github.com/NEXE-sudo/gridmind-ai-infrastructure/pull/3) | P2–P5 | Ten-scenario paired benchmark suite, simulator/API safeguards, dashboard scenario controls, audits, and submission docs | Open for review; not merged. Initial PR checks were pending at submission; local verification is recorded below. |
-| [#4](https://github.com/NEXE-sudo/gridmind-ai-infrastructure/pull/4) | P2–P5 | Fixed-horizon workload accounting, scheduling diagnostics, paired evaluation, reproducible evidence | Open for review from `feat/gridmind-benchmark-validity` to `feat/gridmind-repurpose`; GitHub Python and dashboard jobs passed on head `7ce108d`. PR #3 remains open and unmodified. |
+| [#3](https://github.com/NEXE-sudo/gridmind-ai-infrastructure/pull/3) | P2–P5 | Ten-scenario paired benchmark suite, simulator/API safeguards, dashboard scenario controls, audits, and submission docs | Squash-merged 2026-10-26 as `f96feea5203cfff41e04a92eecb64200d60186c8`; checks passed before merge. |
+| [#4](https://github.com/NEXE-sudo/gridmind-ai-infrastructure/pull/4) | P2–P5 | Fixed-horizon workload accounting, scheduling diagnostics, paired evaluation, reproducible evidence | Squash-merged 2026-10-26 as `661ee8dc0080c20cbe4f586c773724478258d727`; target-branch CI passed after merge. |
+| #5 | P7 | Scheduler-grounded placement evidence, bounded API decision history, and dashboard trace walkthrough | Implemented on `feat/gridmind-decision-traces`; local validation passed; PR submission/CI pending. |
 
 ## Entry template
 
@@ -104,8 +105,10 @@ Update this file in every PR. Keep entries factual and evidence-based.
   under-three-minute demo; decide whether to upgrade or retire the historical
   training extra.
 - PR status: opened as #3 from `feat/gridmind-scenario-lab-benchmarks` to
-  `feat/gridmind-repurpose`, initially at commit `7848f77`. Review only; not
-  merged.
+  `feat/gridmind-repurpose`, initially at commit `7848f77`.
+- Merge verification: GitHub confirms PR #3 was squash-merged on 2026-10-26
+  as `f96feea5203cfff41e04a92eecb64200d60186c8`. Python and dashboard checks
+  passed before merge; the merge commit is the base for PR #4.
 
 ### PR #4 — Harden benchmark validity and stress diagnostics
 - Phase(s): P2–P5.
@@ -168,11 +171,48 @@ Update this file in every PR. Keep entries factual and evidence-based.
   production drain guarantee. Seven existing ESLint Fast Refresh warnings
   remain. `legacy-training` was not installed or audited.
 - PR status: opened as [#4](https://github.com/NEXE-sudo/gridmind-ai-infrastructure/pull/4)
-  from `feat/gridmind-benchmark-validity` to `feat/gridmind-repurpose`; it
-  remains open and unmerged. PR #3 remains open and unmodified.
-- GitHub Actions: Python and dashboard jobs passed on PR head
-  `7ce108d95892e8bcd599ec90788cde06d96df6b7` in run
-  [40371767347](https://github.com/NEXE-sudo/gridmind-ai-infrastructure/actions/runs/40371767347).
+  from `feat/gridmind-benchmark-validity` to `feat/gridmind-repurpose`.
+- GitHub Actions: Python and dashboard jobs passed on the final PR branch
+  head after syncing PR #3 and resolving the duplicate helper in
+  `metrics.py`; the target-branch CI run
+  [40373531371](https://github.com/NEXE-sudo/gridmind-ai-infrastructure/actions/runs/40373531371)
+  passed on merge commit `661ee8dc0080c20cbe4f586c773724478258d727`.
+- Merge verification: GitHub confirms PR #4 was squash-merged on 2026-10-26
+  as `661ee8dc0080c20cbe4f586c773724478258d727`.
+
+### PR #5 — Explain scheduler placement decisions
+- Phase(s): P7.
+- Problem solved: successful deterministic placements exposed only a generic
+  policy rationale and workload-to-node mapping. The scheduler's feasible
+  alternatives and the measured selection that led to a node were absent
+  from the API and dashboard trace.
+- Behaviour delivered: deterministic assignment records are emitted directly
+  by the scheduler's candidate evaluation and include queue rank, priority,
+  deadline, feasible node candidates, projected GPU fill, resource availability,
+  incremental power, projected node/facility power, selected node, and the
+  exact max-fill/tie-break rule. Nemotron assignments are labeled as model
+  proposals accepted by simulator validation; no deterministic ranking is
+  claimed for them. API run history retains a bounded 20-step trace and the
+  dashboard restores and renders the latest decisions and candidate evidence.
+- Benchmark evidence: policy actions and fixed benchmark horizons are
+  unchanged. The primary suite is compared with the checked-in 200-run
+  artifact to verify unchanged substantive results; results remain synthetic
+  and offline Nemotron remains deterministic fallback.
+- Tests run and exact result: full Python 3.11 suite — 157 passed; changed
+  Python Ruff — passed; `uv lock --check` — passed; one-seed suite smoke —
+  40/40 runs completed; dashboard tests — 4 passed; TypeScript diagnostics
+  and production build — passed; ESLint — 0 errors and 7 Fast Refresh
+  warnings; npm audit — 0 vulnerabilities; Python 3.11 runtime `pip-audit`
+  — no known vulnerabilities. The five-seed, 200-run suite was regenerated:
+  CSV and Markdown were byte-identical to committed artifacts
+  (CSV SHA-256 `a0402eacb2d35403bedde9c17bb81397ce16b7f2c919aa368bfe86962a50b0347`;
+  Markdown SHA-256 `39b0d64aae8fc607b7f12ad3a43c0baa5357d35c66b286a20c14ac21ceeb7adb`);
+  substantive JSON matched after excluding only `created_at`.
+- Risks/limitations: resource, power, and performance inputs are synthetic.
+  Candidate projections describe simulator bookkeeping and do not predict
+  real infrastructure. Decision history is bounded and process-local.
+- PR status: implemented on `feat/gridmind-decision-traces` targeting
+  `feat/gridmind-repurpose`; submission and remote-check state pending.
 
 ## Decisions
 

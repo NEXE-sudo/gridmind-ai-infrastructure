@@ -17,7 +17,7 @@ presented as telemetry or a real cloud invoice.
 | API key | Leakage in logs, frontend, or results | Server environment only, no `VITE_*` key, log sanitized error class, no prompt/header/key persistence |
 | Export route | Arbitrary filesystem path traversal | API exports only the in-memory latest benchmark to a fixed CSV response; CLI output directory is an operator-selected local path |
 | Concurrent requests | Conflicting mutation of shared simulator | Process-local lock; documented single-process/single-session limitation |
-| Dashboard | Misleading live/model metrics or hiding unfinished work | Simulation-only badge, explicit live-inference toggle, fallback trace, estimated-energy labels, full workload denominators, unresolved/infeasible counts, and execution status separated from workload outcomes |
+| Dashboard | Misleading live/model metrics or hiding unfinished work | Simulation-only badge, explicit live-inference toggle, fallback trace, scheduler-emitted placement candidates and skip reasons, estimated-energy labels, full workload denominators, unresolved/infeasible counts, and execution status separated from workload outcomes |
 
 ## Known constraints
 
@@ -49,6 +49,11 @@ presented as telemetry or a real cloud invoice.
   unauthenticated arbitrary-path export endpoint.
 - A live external model response can be nondeterministic and network-dependent.
   Offline runs are the reproducible comparison baseline.
+- Deterministic placement evidence describes the simulator's candidate
+  feasibility checks and best-fit rule, not measured cluster telemetry.
+  Nemotron placement traces report simulator validation only; model-generated
+  free-text rationales are not verified causal explanations. Decision history
+  is process-local and bounded to the last 20 decision steps per recent run.
 - The frontend dependency graph was updated and verified with both full and
   production-only `npm audit`; each reported zero known vulnerabilities.
 - The optional `legacy` OpenEnv test extra uses Pillow 13 on Python 3.11+.
