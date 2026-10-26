@@ -105,4 +105,49 @@ describe("GridMindConsole", () => {
       }),
     );
   });
+
+  it("enables live scheduling only after the confirmation-gated model check", async () => {
+    let verified = false;
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(async (input: RequestInfo | URL) => {
+        const path = String(input);
+        if (path === "/state") return jsonResponse(simulationState(0));
+        if (path === "/ready") {
+          return jsonResponse({
+            status: "ready",
+            model_configured: true,
+            model_verification_status: verified ? "live_success" : "not_attempted",
+          });
+        }
+        if (path.startsWith("/history")) return jsonResponse({ runs: [] });
+        if (path === "/model/verify") {
+          verified = true;
+          return jsonResponse({ status: "live_success" });
+        }
+        throw new Error(`Unexpected API request: ${path}`);
+      }),
+    );
+    render(<GridMindConsole />);
+    await screen.findByText("Infrastructure at a glance.");
+    fireEvent.change(screen.getByLabelText("Policy"), {
+      target: { value: "nemotron" },
+    });
+
+    const liveToggle = screen.getByRole("checkbox", { name: "Request live model" });
+    expect(liveToggle).toBeDisabled();
+    fireEvent.click(screen.getByRole("button", { name: "Verify model · 1 live request" }));
+
+    expect(await screen.findByRole("status")).toHaveTextContent(
+      "Catalogue and one live Nemotron request verified",
+    );
+    await waitFor(() => expect(liveToggle).toBeEnabled());
+    expect(globalThis.fetch).toHaveBeenCalledWith(
+      "/model/verify",
+      expect.objectContaining({
+        method: "POST",
+        body: JSON.stringify({ confirm_live_request: true }),
+      }),
+    );
+  });
 });

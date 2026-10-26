@@ -17,7 +17,7 @@ with npm.
 
 ```bash
 cd Scaler_hackathon
-uv sync --locked --extra dev
+uv sync --locked --extra dev --extra legacy
 uv run python -m pytest -q
 cd agent-grid-view
 npm ci
@@ -51,14 +51,18 @@ runs, not live inference.
 
 ## Runtime model setup
 
-Ordinary runs and tests do not call an external provider. To test a live
-proposal, first obtain a Nebius Token Factory API key and verify an exact
-NVIDIA model ID through the authenticated catalogue command documented in
-[`MODEL_INTEGRATION.md`](./Scaler_hackathon/docs/MODEL_INTEGRATION.md). Set
-`NEBIUS_API_KEY` and `GRIDMIND_MODEL` only in the server environment. Never use
-a `VITE_*` variable for secrets. A model call is reported as live only after a
-successful response; missing configuration and provider errors use the
-deterministic fallback.
+Ordinary runs and tests do not call an external provider. For an explicitly
+authorized single-request test, set `NEBIUS_API_KEY` and an exact NVIDIA
+Nemotron `GRIDMIND_MODEL` only in the server environment, then run
+`uv run python scripts/smoke_test_nemotron.py --live` from `Scaler_hackathon/`.
+The command verifies the authenticated catalogue, makes one real request, and
+validates the proposal without executing it. The dashboard's **Verify model ·
+1 live request** button performs its own confirmation-gated verification;
+live runs and benchmarks are unavailable until that API process receives a
+successful verification. Never use a `VITE_*` variable for secrets. Missing
+configuration and provider errors use the deterministic fallback. See the
+[model integration guide](./Scaler_hackathon/docs/MODEL_INTEGRATION.md) for
+request limits, telemetry definitions, and live-verification status.
 
 ## Scope and submission readiness
 

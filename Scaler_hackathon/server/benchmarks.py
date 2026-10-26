@@ -17,6 +17,12 @@ from typing import Any
 from .datacenter_simulator import DatacenterSimulator
 from .decision import POLICIES, execute_policy_step
 from .metrics import aggregate_runs, bootstrap_mean_interval
+from .nemotron import (
+    configured_base_url,
+    configured_inference_timeout_seconds,
+    request_proposal,
+    verify_catalogue_model,
+)
 from .scenarios import load_scenario_suite, scenario_configs
 
 SIMULATOR_VERSION = "gridmind-simulator-v4"
@@ -140,6 +146,7 @@ def run_episode(
         "simulator_version": SIMULATOR_VERSION,
         "seed": scenario["seed"],
         "live_model_enabled": live_model,
+        "model_provider": "nebius-token-factory" if live_model else None,
         "model_id": os.getenv("GRIDMIND_MODEL") if live_model else None,
         "model_execution_mode": (
             "live_inference" if live_model and policy == "nemotron"
@@ -211,6 +218,12 @@ def run_episode(
                             "explanation",
                             "proposal_status",
                             "proposal_latency_ms",
+                            "inference_mode",
+                            "proposal_request_attempts",
+                            "proposal_retry_count",
+                            "proposal_response_received",
+                            "proposal_prompt_tokens",
+                            "proposal_completion_tokens",
                             "scheduling_diagnostics",
                             "fallback_used",
                             "rejected_actions",
@@ -266,6 +279,7 @@ def run_experiments(
     *,
     policies: list[str] | None = None,
     live_model: bool = False,
+    live_verified: bool = False,
     include_history: bool = True,
 ) -> dict[str, Any]:
     validate_config(config)
@@ -287,6 +301,10 @@ def run_experiments(
     if live_model and (len(seeds) != 1 or config["max_steps"] > 10):
         raise ValueError(
             "Live inference is bounded to one seed and at most ten simulation steps per run"
+        )
+    if live_model and not live_verified:
+        raise ValueError(
+            "Live experiments require a successful catalogue and one-request preflight"
         )
 
     records = []
@@ -315,6 +333,7 @@ def run_experiments(
         "seeds": seeds,
         "policies": policies,
         "live_model_enabled": live_model,
+        "model_provider": "nebius-token-factory" if live_model else None,
         "model_id": os.getenv("GRIDMIND_MODEL") if live_model else None,
         "comparison": comparison,
         "paired_comparison_vs_resource_aware": paired_comparison(records, policies),
@@ -754,11 +773,12 @@ def main(argv: list[str] | None = None) -> int:
             else list(range(1, 21))
         )
         policies = [value.strip() for value in args.policies.split(",") if value.strip()]
+        if args.suite and args.live_model:
+            raise ValueError(
+                "Live model requests must target one bounded scenario config, not the full suite"
+            )
+        live_preflight = _run_live_preflight() if args.live_model else None
         if args.suite:
-            if args.live_model:
-                raise ValueError(
-                    "Live model requests must target one bounded scenario config, not the full suite"
-                )
             result = run_scenario_suite(
                 seeds,
                 policies=policies,
@@ -771,7 +791,10 @@ def main(argv: list[str] | None = None) -> int:
                 seeds,
                 policies=policies,
                 live_model=args.live_model,
+                live_verified=bool(live_preflight),
             )
+        if live_preflight is not None:
+            result["live_preflight"] = live_preflight
         paths = write_results(result, args.output_dir)
     except (ValueError, OSError) as exc:
         parser.error(str(exc))
@@ -786,6 +809,62 @@ def main(argv: list[str] | None = None) -> int:
         )
     )
     return 0
+
+
+def _run_live_preflight() -> dict[str, Any]:
+    api_key = os.getenv("NEBIUS_API_KEY")
+    model_id = os.getenv("GRIDMIND_MODEL")
+    if not api_key or not model_id:
+        raise ValueError("--live-model requires NEBIUS_API_KEY and GRIDMIND_MODEL")
+    normalized_model_id = model_id.casefold()
+    if (
+        model_id != model_id.strip()
+        or any(ord(char) < 32 for char in model_id)
+        or len(model_id) > 200
+        or api_key in model_id
+        or not normalized_model_id.startswith("nvidia/")
+        or "nemotron" not in normalized_model_id
+    ):
+        raise ValueError("--live-model requires an NVIDIA Nemotron model ID")
+    try:
+        timeout_seconds = configured_inference_timeout_seconds()
+        configured_base_url()
+    except ValueError as exc:
+        raise ValueError("Live model provider configuration is invalid") from exc
+    try:
+        model_available = verify_catalogue_model(
+            model_id, api_key, timeout=min(timeout_seconds, 10.0)
+        )
+    except RuntimeError as exc:
+        raise ValueError("Live model catalogue verification failed (details sanitized)") from exc
+    if not model_available:
+        raise ValueError("Configured model ID is not listed in the live catalogue")
+    simulator = DatacenterSimulator(seed=17)
+    proposal = request_proposal(simulator.state())
+    rejections = (
+        simulator.validate_assignments(proposal.assignments)
+        if proposal.used_model
+        else []
+    )
+    if proposal.used_model and not proposal.assignments:
+        rejections.append({"workload_id": "", "reason": "empty_assignments"})
+    if not proposal.used_model or rejections:
+        raise ValueError(
+            "Live model preflight failed: "
+            + (proposal.error_code or "invalid_model_proposal")
+        )
+    return {
+        "status": "live_success",
+        "provider": "nebius-token-factory",
+        "model_id": model_id,
+        "test_time_utc": datetime.now(UTC).isoformat(),
+        "request_attempts": proposal.request_attempts,
+        "retry_count": max(0, proposal.request_attempts - 1),
+        "latency_ms": proposal.latency_ms,
+        "prompt_tokens": proposal.prompt_tokens,
+        "completion_tokens": proposal.completion_tokens,
+        "proposal_validated": True,
+    }
 
 
 if __name__ == "__main__":

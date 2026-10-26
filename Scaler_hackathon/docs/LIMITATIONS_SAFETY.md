@@ -12,12 +12,12 @@ presented as telemetry or a real cloud invoice.
 | Input / boundary | Risk | Current mitigation |
 |---|---|---|
 | HTTP request | Invalid schema, oversized runs, accidental mutation | Strict request fields/types; run bound of 100 steps; benchmark bound of 5 seeds and 4 policies; serialized state mutation |
-| Model response | Hallucinated IDs, malformed schema, infeasible placement | Exact JSON keys/type checks, bounded output, simulator-side resource and power validation, deterministic fallback |
-| Provider error | Timeouts, rate limits, unavailable service | Explicit timeout, one bounded retry, non-secret error category, deterministic fallback |
+| Model response | Hallucinated IDs, duplicate JSON keys, malformed schema, infeasible placement | Exact JSON keys/type checks; duplicate-key rejection; bounded output; full-plan simulator validation before placement; deterministic fallback |
+| Provider error | Timeouts, rate limits, unavailable service | One total deadline (maximum 60 seconds); at most one explicit retry for timeout/rate limit; SDK retries disabled; non-secret error category; deterministic fallback |
 | API key | Leakage in logs, frontend, or results | Server environment only, no `VITE_*` key, log sanitized error class, no prompt/header/key persistence |
 | Export route | Arbitrary filesystem path traversal | API exports only the in-memory latest benchmark to a fixed CSV response; CLI output directory is an operator-selected local path |
 | Concurrent requests | Conflicting mutation of shared simulator | Process-local lock; documented single-process/single-session limitation |
-| Dashboard | Misleading live/model metrics or hiding unfinished work | Simulation-only badge, explicit live-inference toggle, fallback trace, estimated-energy labels, full workload denominators, unresolved/infeasible counts, and execution status separated from workload outcomes |
+| Dashboard | Misleading live/model metrics or hiding unfinished work | Simulation-only badge; verification status distinct from configuration; explicit one-request verification button; live toggle/benchmarks gated on one successful, simulator-validated provider response; fallback trace; estimated-energy labels; full workload denominators; unresolved/infeasible counts; execution status separated from workload outcomes |
 
 ## Known constraints
 
@@ -49,6 +49,14 @@ presented as telemetry or a real cloud invoice.
   unauthenticated arbitrary-path export endpoint.
 - A live external model response can be nondeterministic and network-dependent.
   Offline runs are the reproducible comparison baseline.
+- Client-side request-attempt counts do not prove the provider executed a timed
+  out request or determine billing. `ai_invocations` counts completion
+  response objects received; retries and absent response/token usage remain
+  separate and are not estimated.
+- A successful one-request verification is process-local. Restarting the API
+  requires re-verification before live scheduling or benchmarking. The
+  external smoke script verifies its own request but does not mark another
+  running API process as verified.
 - The frontend dependency graph was updated and verified with both full and
   production-only `npm audit`; each reported zero known vulnerabilities.
 - The optional `legacy` OpenEnv test extra uses Pillow 13 on Python 3.11+.
@@ -62,7 +70,7 @@ presented as telemetry or a real cloud invoice.
   `torch==2.2.2` (23), and `transformers==4.36.2` (45). Do not install it
   for the GridMind runtime; update and validate the historical training stack
   before using it.
-- No verified live model request or deployment is claimed for this PR.
+- No verified live model request or deployment is claimed for this checkout.
 - No root open-source license was present in the inspected base. A license
   requires repository-owner confirmation of rights and compatibility with
   inherited code/assets; this work does not create or imply a license grant.

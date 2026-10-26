@@ -81,6 +81,15 @@ def test_live_experiment_requires_nemotron_policy():
         )
 
 
+def test_live_experiment_requires_successful_preflight(monkeypatch):
+    monkeypatch.setenv("NEBIUS_API_KEY", "test-key")
+    monkeypatch.setenv("GRIDMIND_MODEL", "nvidia/Nemotron-test")
+    config = load_config(CONFIG_PATH)
+    config["max_steps"] = 10
+    with pytest.raises(ValueError, match="successful catalogue and one-request preflight"):
+        run_experiments(config, [1], live_model=True)
+
+
 def test_duplicate_seed_rejected():
     with pytest.raises(ValueError, match="unique"):
         run_experiments(load_config(CONFIG_PATH), [1, 1])

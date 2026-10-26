@@ -18,7 +18,7 @@ code and is not the GridMind runtime.
 | P0 | Baseline, provenance, scope, working agreement | Complete in PR #1 | Separate GridMind entry point and legacy source preserved; baseline test result is in `docs/PR_LOG.md`. |
 | P1 | Simulator, lifecycle, constraints, baseline schedulers, API | Implemented; lifecycle hardening in PR #4 | Explicit terminal structural infeasibility, recovery-before-scheduling, skip reasons, deadline semantics, and fixed-horizon execution status are regression-tested. |
 | P2 | Shared metrics, paired multi-seed experiments, export/report | Implemented offline; benchmark validity hardened in PR #4 | Ten scenarios × five seeds × four policies; workload/run status separated, full and feasible denominators, matched failure traces, explicit unresolved reasons, deterministic CSV/Markdown, and descriptive intervals. |
-| P3 | Nebius Token Factory and NVIDIA Nemotron | Implemented; external verification pending | Adapter, schema validation, bounded retry/timeout, fallback, mocked tests and smoke commands. Exact model ID and real inference require authorized credentials and a live smoke test. |
+| P3 | Nebius Token Factory and NVIDIA Nemotron | Offline hardening implemented; live verification blocked | Strict JSON/duplicate-key parsing, request/retry/usage accounting, one total timeout budget, simulator-validated proposals, explicit fallback statuses, confirmation-gated one-request verification, and opt-in smoke workflow. Exact model ID, catalogue response, and real inference remain unverified without authorized credentials. |
 | P4 | GridMind API and operations dashboard | Implemented for local single session | Scenario controls, node/workload state, policies, run/step/reset, benchmark/history/export; frontend tests and build. |
 | P5 | Reliability, security, CI, packaging | PR #4 local verification and GitHub CI passed | Python 3.11 tests (154 passed), changed-file Ruff, frontend tests/type diagnostics/build/lint, locked dependency audits, lockfile check, deterministic scenario-suite smoke, and PR #4 Python/dashboard CI jobs passed. ESLint reports 7 Fast Refresh warnings. The unused legacy-training extra was not installed or audited; deployment and license remain blockers. |
 | P6 | Hackathon/demo submission package | Prepared, not submission complete | Setup, architecture, methodology, model boundary, threat/limitations, actual sample report, video script and checklist. Public video, license, live model evidence, and any public URL remain outstanding. |
@@ -60,6 +60,21 @@ in [`BENCHMARK_METHODOLOGY.md`](./BENCHMARK_METHODOLOGY.md) and
 [`benchmarks/sample-suite/report.md`](../benchmarks/sample-suite/report.md).
 All reported values are synthetic. Offline Nemotron remains deterministic
 fallback, not evidence of live inference or AI superiority.
+
+## PR #6 live-integration and evaluation safeguards
+
+The optional provider workflow now has an explicit one-request, opt-in
+preflight. It checks the authenticated live catalogue, makes one inference,
+and requires the proposal to pass simulator constraints before the API process
+permits live scheduling or benchmarking. The CLI performs an equivalent
+preflight before starting a bounded live experiment. Attempts, retries,
+responses, schema-valid proposals, failures, fallbacks, latency, and
+provider-returned usage are distinguished; absent usage remains `null`.
+Offline runs remain the default and do not need credentials or network access.
+
+This environment had no authorized Token Factory key or configured model ID.
+Consequently, no live catalogue, inference, or comparative benchmark was run.
+Provider-backed results remain unavailable, and no model advantage is claimed.
 
 ## Exit criteria for remaining work
 

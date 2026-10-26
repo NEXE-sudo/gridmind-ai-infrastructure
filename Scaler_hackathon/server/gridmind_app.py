@@ -5,6 +5,7 @@ import copy
 import csv
 import os
 import threading
+import time
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime
 from io import StringIO
@@ -25,6 +26,12 @@ from .benchmarks import (
 )
 from .datacenter_simulator import DatacenterSimulator
 from .decision import POLICIES, execute_policy_step
+from .nemotron import (
+    configured_base_url,
+    configured_inference_timeout_seconds,
+    request_proposal,
+    verify_catalogue_model,
+)
 from .scenarios import get_scenario_config, load_scenario_suite
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -32,6 +39,9 @@ DEFAULT_CONFIG = ROOT / "configs" / "demo.json"
 operation_lock = threading.Lock()
 recent_runs: list[dict[str, Any]] = []
 latest_benchmark: dict[str, Any] | None = None
+verified_live_model_id: str | None = None
+last_verification_model_id: str | None = None
+last_verification_status = "not_attempted"
 LEGACY_SCENARIOS = ("standard", "workload_surge", "node_failure", "tight_deadlines")
 SCENARIO_IDS = tuple(
     item["id"] for item in load_scenario_suite()["scenarios"]
@@ -140,6 +150,12 @@ class RunRequest(BaseModel):
     use_live_model: StrictBool = False
 
 
+class ModelVerificationRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    confirm_live_request: StrictBool = False
+
+
 class BenchmarkRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -180,14 +196,149 @@ def health() -> dict[str, str]:
 
 @app.get("/ready")
 def ready() -> dict[str, Any]:
+    model_id = os.getenv("GRIDMIND_MODEL")
+    configured = bool(os.getenv("NEBIUS_API_KEY") and model_id)
     return {
         "status": "ready",
-        "model_configured": bool(
-            os.getenv("NEBIUS_API_KEY") and os.getenv("GRIDMIND_MODEL")
+        "model_configured": configured,
+        "model_verification_status": (
+            "not_configured"
+            if not configured
+            else last_verification_status
+            if model_id == last_verification_model_id
+            else "not_attempted"
         ),
         "active_simulator": True,
         "state_scope": "single-process-single-session",
     }
+
+
+@app.post("/model/verify")
+def verify_live_model(req: ModelVerificationRequest) -> dict[str, Any]:
+    global last_verification_model_id, last_verification_status
+    global verified_live_model_id
+    if not req.confirm_live_request:
+        raise HTTPException(
+            422, "Set confirm_live_request=true to authorize one real provider request"
+        )
+    with operation_lock:
+        verified_live_model_id = None
+        last_verification_model_id = None
+        last_verification_status = "not_attempted"
+    api_key = os.getenv("NEBIUS_API_KEY")
+    model_id = os.getenv("GRIDMIND_MODEL")
+    if not api_key or not model_id:
+        with operation_lock:
+            last_verification_status = "not_configured"
+        return {
+            "status": "not_configured",
+            "catalogue_status": "not_attempted",
+            "request_attempts": 0,
+        }
+    normalized_model_id = model_id.casefold()
+    if (
+        model_id != model_id.strip()
+        or any(ord(char) < 32 for char in model_id)
+        or len(model_id) > 200
+        or api_key in model_id
+        or not normalized_model_id.startswith("nvidia/")
+        or "nemotron" not in normalized_model_id
+    ):
+        with operation_lock:
+            if (
+                len(model_id) <= 200
+                and model_id == model_id.strip()
+                and not any(ord(char) < 32 for char in model_id)
+                and api_key not in model_id
+            ):
+                last_verification_model_id = model_id
+            last_verification_status = "invalid_model_id"
+        return {
+            "status": "invalid_model_id",
+            "catalogue_status": "not_attempted",
+            "request_attempts": 0,
+            "error_code": "expected_nvidia_nemotron_id",
+        }
+    try:
+        timeout_seconds = configured_inference_timeout_seconds()
+        configured_base_url()
+    except ValueError:
+        with operation_lock:
+            last_verification_model_id = model_id
+            last_verification_status = "invalid_configuration"
+        return {
+            "status": "invalid_configuration",
+            "catalogue_status": "not_attempted",
+            "request_attempts": 0,
+            "error_code": "invalid_provider_configuration",
+        }
+
+    with operation_lock:
+        last_verification_model_id = model_id
+        last_verification_status = "not_attempted"
+        catalogue_started = time.perf_counter()
+        try:
+            catalogue_match = verify_catalogue_model(
+                model_id, api_key, timeout=min(timeout_seconds, 10.0)
+            )
+        except RuntimeError:
+            last_verification_status = "live_failure_fallback"
+            return {
+                "status": "live_failure_fallback",
+                "catalogue_status": "failed",
+                "model_id": model_id,
+                "catalogue_latency_ms": round(
+                    (time.perf_counter() - catalogue_started) * 1000, 3
+                ),
+                "request_attempts": 0,
+                "error_code": "catalogue_unavailable",
+            }
+        catalogue_latency_ms = round(
+            (time.perf_counter() - catalogue_started) * 1000, 3
+        )
+        if not catalogue_match:
+            last_verification_status = "invalid_model_id"
+            return {
+                "status": "invalid_model_id",
+                "catalogue_status": "model_not_listed",
+                "model_id": model_id,
+                "catalogue_latency_ms": catalogue_latency_ms,
+                "request_attempts": 0,
+            }
+
+        verification_sim = DatacenterSimulator(seed=17)
+        proposal = request_proposal(verification_sim.state())
+        validation_rejections = (
+            verification_sim.validate_assignments(proposal.assignments)
+            if proposal.used_model
+            else []
+        )
+        if proposal.used_model and not proposal.assignments:
+            validation_rejections.append(
+                {"workload_id": "", "reason": "empty_assignments"}
+            )
+        if proposal.used_model and not validation_rejections:
+            status = "live_success"
+            verified_live_model_id = model_id
+        elif proposal.used_model or proposal.status == "invalid_response":
+            status = "invalid_model_proposal"
+        else:
+            status = "live_failure_fallback"
+        last_verification_status = status
+        return {
+            "status": status,
+            "catalogue_status": "verified_exact_match",
+            "model_id": proposal.model_id or model_id,
+            "catalogue_latency_ms": catalogue_latency_ms,
+            "provider_response_received": proposal.response_received,
+            "request_attempts": proposal.request_attempts,
+            "retry_count": max(0, proposal.request_attempts - 1),
+            "latency_ms": proposal.latency_ms,
+            "prompt_tokens": proposal.prompt_tokens,
+            "completion_tokens": proposal.completion_tokens,
+            "error_code": proposal.error_code,
+            "validation_rejections": validation_rejections,
+        }
 
 
 @app.get("/state")
@@ -307,9 +458,19 @@ def step(req: StepRequest) -> dict[str, Any]:
 def run(req: RunRequest) -> dict[str, Any]:
     if req.use_live_model and req.policy != "nemotron":
         raise HTTPException(422, "use_live_model is only valid for policy=nemotron")
+    if req.use_live_model and os.getenv("GRIDMIND_MODEL") != verified_live_model_id:
+        raise HTTPException(
+            409,
+            "Run POST /model/verify and receive live_success before requesting live inference",
+        )
     if req.use_live_model and req.steps > 10:
         raise HTTPException(422, "Live inference is limited to ten simulation steps per request")
     with operation_lock:
+        if req.use_live_model and os.getenv("GRIDMIND_MODEL") != verified_live_model_id:
+            raise HTTPException(
+                409,
+                "Live model verification expired before execution; verify again",
+            )
         history = []
         run_id = str(uuid4())
         sim.horizon_steps = sim.step_count + req.steps
@@ -359,7 +520,17 @@ def run_benchmark(req: BenchmarkRequest) -> dict[str, Any]:
         )
     if req.use_live_model and len(req.seeds) != 1:
         raise HTTPException(422, "Live benchmark inference is limited to one seed")
+    if req.use_live_model and os.getenv("GRIDMIND_MODEL") != verified_live_model_id:
+        raise HTTPException(
+            409,
+            "Run POST /model/verify and receive live_success before a live benchmark",
+        )
     with operation_lock:
+        if req.use_live_model and os.getenv("GRIDMIND_MODEL") != verified_live_model_id:
+            raise HTTPException(
+                409,
+                "Live model verification expired before benchmark execution; verify again",
+            )
         try:
             config = get_scenario_config(req.scenario, seed=0)
             if req.use_live_model:
@@ -369,6 +540,7 @@ def run_benchmark(req: BenchmarkRequest) -> dict[str, Any]:
                 req.seeds,
                 policies=req.policies,
                 live_model=req.use_live_model,
+                live_verified=req.use_live_model,
             )
         except ValueError as exc:
             raise HTTPException(422, str(exc)) from exc
