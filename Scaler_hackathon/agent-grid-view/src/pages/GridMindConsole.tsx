@@ -36,10 +36,16 @@ const POLICIES: Array<{ id: PolicyId; label: string }> = [
 ];
 
 const SCENARIOS = [
-  { id: "standard", label: "Standard arrivals" },
-  { id: "workload_surge", label: "Workload surge" },
-  { id: "node_failure", label: "Node failures" },
-  { id: "tight_deadlines", label: "Tight deadlines" },
+  { id: "balanced", label: "Balanced baseline" },
+  { id: "burst_arrivals", label: "Burst arrivals" },
+  { id: "mixed_priority_deadlines", label: "Mixed priorities / deadlines" },
+  { id: "heterogeneous_gpu_types", label: "GPU types / capacity" },
+  { id: "gpu_memory_pressure", label: "GPU memory pressure" },
+  { id: "tight_power_budget", label: "Tight power budget" },
+  { id: "node_failure_recovery", label: "Node failure / recovery" },
+  { id: "short_long_contention", label: "Short / long job contention" },
+  { id: "infeasible_workloads", label: "Infeasible requests" },
+  { id: "combined_stress", label: "Combined stress" },
 ] satisfies Array<{ id: ScenarioId; label: string }>;
 
 const statusClass: Record<string, string> = {
@@ -97,7 +103,7 @@ export default function GridMindConsole() {
   const [benchmark, setBenchmark] = useState<BenchmarkResult | null>(null);
   const [decisionLog, setDecisionLog] = useState<DecisionRecord[]>([]);
   const [policy, setPolicy] = useState<PolicyId>("resource_aware");
-  const [scenario, setScenario] = useState<ScenarioId>("standard");
+  const [scenario, setScenario] = useState<ScenarioId>("balanced");
   const [seed, setSeed] = useState(42);
   const [steps, setSteps] = useState(10);
   const [benchmarkSeeds, setBenchmarkSeeds] = useState("1,2,3");
@@ -115,7 +121,7 @@ export default function GridMindConsole() {
       api<{ runs: RunRecord[] }>("/history?limit=12"),
     ]);
     setState(nextState);
-    setScenario(nextState.scenario ?? "standard");
+    setScenario(nextState.scenario ?? "balanced");
     setReady(nextReady);
     setHistory(nextHistory.runs);
   }, []);
@@ -130,7 +136,7 @@ export default function GridMindConsole() {
       .then(([nextState, nextReady, nextHistory]) => {
         if (!active) return;
         setState(nextState);
-        setScenario(nextState.scenario ?? "standard");
+        setScenario(nextState.scenario ?? "balanced");
         setReady(nextReady);
         setHistory(nextHistory.runs);
       })
@@ -217,6 +223,7 @@ export default function GridMindConsole() {
           body: JSON.stringify({
             seeds: parsedSeeds,
             policies: POLICIES.map((item) => item.id),
+            scenario,
             use_live_model: useLiveModel,
           }),
         });
@@ -244,7 +251,7 @@ export default function GridMindConsole() {
       <header className="topbar">
         <a className="brand" href="#overview" aria-label="GridMind operations home">
           <span className="brand-mark"><Cpu size={20} /></span>
-          <span>GRIDMIND <small>INFRASTRUCTURE CONTROL</small></span>
+          <span>GRIDMIND <small>OPERATIONS SIMULATOR</small></span>
         </a>
         <nav className="top-nav" aria-label="Main navigation">
           <a href="#overview">Overview</a>
@@ -429,13 +436,14 @@ export default function GridMindConsole() {
               </div>
               <div className="table-scroll">
                 <table className="workload-table">
-                  <thead><tr><th>Workload</th><th>Priority</th><th>Request</th><th>Deadline</th><th>Progress</th><th>Node</th><th>Status</th></tr></thead>
+                  <thead><tr><th>Workload</th><th>Priority</th><th>Request</th><th>GPU type</th><th>Deadline</th><th>Progress</th><th>Node</th><th>Status</th></tr></thead>
                   <tbody>
                     {state.workloads.map((workload) => (
                       <tr key={workload.id}>
                         <td><strong>{workload.name}</strong><small>{workload.id} · arrives at t+{workload.submission_time}</small></td>
                         <td><span className={`priority priority-${workload.priority}`}>P{workload.priority}</span></td>
                         <td>{workload.gpu_count} GPU · {workload.memory_gb} GB</td>
+                        <td>{workload.required_gpu_model ?? "Any compatible"}</td>
                         <td>{workload.deadline == null ? "—" : `t+${workload.deadline}`}</td>
                         <td>{workload.duration - workload.remaining} / {workload.duration} min</td>
                         <td>{workload.node_id ?? "—"}</td>

@@ -1,9 +1,13 @@
 """Shared operational metric definitions for simulation and experiments."""
 from __future__ import annotations
 
+import random
 from collections.abc import Iterable
 from statistics import fmean, stdev
 from typing import Any
+
+STARVATION_THRESHOLD_MINUTES = 30
+BOOTSTRAP_REPLICATES = 2_000
 
 
 def percentile(values: Iterable[float], quantile: float) -> float | None:
@@ -16,6 +20,32 @@ def percentile(values: Iterable[float], quantile: float) -> float | None:
     lower = int(index)
     upper = min(lower + 1, len(ordered) - 1)
     return round(ordered[lower] + (ordered[upper] - ordered[lower]) * (index - lower), 4)
+
+
+def bootstrap_mean_interval(
+    values: list[float],
+    *,
+    seed: int = 20_261_026,
+) -> dict[str, float | int | None | str]:
+    """Deterministic percentile bootstrap over independent run-level samples."""
+    if len(values) < 5:
+        return {
+            "lower": None,
+            "upper": None,
+            "replicates": 0,
+            "status": "insufficient_independent_runs",
+        }
+    rng = random.Random(seed)
+    means = sorted(
+        fmean(rng.choices(values, k=len(values)))
+        for _ in range(BOOTSTRAP_REPLICATES)
+    )
+    return {
+        "lower": round(percentile(means, 0.025) or 0.0, 6),
+        "upper": round(percentile(means, 0.975) or 0.0, 6),
+        "replicates": BOOTSTRAP_REPLICATES,
+        "status": "descriptive_percentile_bootstrap",
+    }
 
 
 def calculate_metrics(sim: Any) -> dict[str, Any]:
@@ -54,6 +84,37 @@ def calculate_metrics(sim: Any) -> dict[str, Any]:
     elapsed_hours = sim.step_count / 60
     counters = sim.counters
     available_power = sum(node.power_kw for node in sim.nodes)
+    workload_class_totals: dict[str, int] = {}
+    workload_class_completed: dict[str, int] = {}
+    for workload in submitted:
+        workload_class_totals[workload.workload_class] = (
+            workload_class_totals.get(workload.workload_class, 0) + 1
+        )
+        if workload.status == "completed":
+            workload_class_completed[workload.workload_class] = (
+                workload_class_completed.get(workload.workload_class, 0) + 1
+            )
+    infeasible_pending = [
+        workload
+        for workload in submitted
+        if workload.status == "pending"
+        and not any(
+            (workload.required_gpu_model is None or workload.required_gpu_model == node.gpu_model)
+            and workload.gpu_count <= node.gpu_count
+            and workload.memory_gb <= node.memory_gb
+            and node.idle_kw + node.per_gpu_kw * workload.gpu_count <= node.power_limit_kw
+            and node.idle_kw + node.per_gpu_kw * workload.gpu_count <= sim.power_budget_kw
+            for node in sim.nodes
+        )
+    ]
+    infeasible_ids = {workload.id for workload in infeasible_pending}
+    starved = [
+        workload
+        for workload in submitted
+        if workload.status == "pending"
+        and workload.id not in infeasible_ids
+        and sim.step_count - workload.submission_time >= STARVATION_THRESHOLD_MINUTES
+    ]
 
     return {
         "elapsed_steps": sim.step_count,
@@ -122,7 +183,18 @@ def calculate_metrics(sim: Any) -> dict[str, Any]:
         "estimated_energy_cost": round(sim.energy_kwh * sim.energy_price_per_kwh, 6),
         "energy_price_per_kwh": sim.energy_price_per_kwh,
         "failed_nodes": counters["node_failures"],
+        "recovered_nodes": counters["node_recoveries"],
         "workloads_requeued": counters["workloads_requeued"],
+        "workloads_preempted": counters["workloads_preempted"],
+        "starved_workloads": len(starved),
+        "starvation_threshold_minutes": STARVATION_THRESHOLD_MINUTES,
+        "infeasible_pending_workloads": len(infeasible_pending),
+        "completion_rate_by_workload_class": {
+            workload_class: round(
+                workload_class_completed.get(workload_class, 0) / count, 4
+            )
+            for workload_class, count in sorted(workload_class_totals.items())
+        },
         "rejected_actions": counters["rejected_actions"],
         "resource_rejections": counters["resource_rejections"],
         "fragmented_gpu_fraction": round(_fragmented_gpu_fraction(sim), 4),
@@ -173,6 +245,11 @@ def aggregate_runs(runs: list[dict[str, Any]]) -> dict[str, Any]:
         "ai_fallbacks",
         "ai_invalid_proposals",
         "ai_latency_ms_mean",
+        "recovered_nodes",
+        "workloads_requeued",
+        "workloads_preempted",
+        "starved_workloads",
+        "infeasible_pending_workloads",
     )
     summary: dict[str, Any] = {
         "run_count": len(runs),
@@ -194,6 +271,7 @@ def aggregate_runs(runs: list[dict[str, Any]]) -> dict[str, Any]:
             "p50": percentile(values, 0.5),
             "p95": percentile(values, 0.95),
             "n": len(values),
+            "confidence_interval_95": bootstrap_mean_interval(values),
         }
     return summary
 

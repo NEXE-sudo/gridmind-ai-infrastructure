@@ -37,6 +37,28 @@ def test_unknown_node_is_rejected_without_starting_job():
     assert next(w for w in sim.workloads if w.id == "train-001").status == "pending"
 
 
+def test_required_gpu_model_is_enforced_by_scheduler_and_simulator():
+    sim = DatacenterSimulator(
+        nodes=[Node("t4", 2, 24, 2.0, gpu_model="NVIDIA T4")],
+        workloads=[
+            Workload(
+                "a100-job",
+                "A100-only job",
+                1,
+                8,
+                1,
+                required_gpu_model="NVIDIA A100",
+            )
+        ],
+    )
+    assert schedule(sim, "resource_aware") == {}
+    result = sim.apply_action({"a100-job": "t4"})
+    assert result["rejected_actions"] == [
+        {"workload_id": "a100-job", "reason": "incompatible_gpu_model"}
+    ]
+    assert sim.workloads[0].status == "pending"
+
+
 def test_capacity_violation_is_rejected():
     sim = DatacenterSimulator()
     sim.nodes = [Node("small", 1, 8, 1.0)]

@@ -66,6 +66,8 @@ class Workload:
     max_retries: int = 2
     submitted: bool = True
     completed_work_units: int = 0
+    required_gpu_model: str | None = None
+    workload_class: str = "general"
 
     def __post_init__(self) -> None:
         if (
@@ -83,6 +85,10 @@ class Workload:
             )
         if self.deadline is not None and self.deadline < 0:
             raise ValueError("Workload deadline must be non-negative")
+        if self.required_gpu_model is not None and not self.required_gpu_model:
+            raise ValueError("Required GPU model must be a non-empty string")
+        if not self.workload_class:
+            raise ValueError("Workload class must be a non-empty string")
         if self.remaining is None:
             self.remaining = self.duration
         if not 0 <= self.remaining <= self.duration:
@@ -133,6 +139,8 @@ class DatacenterSimulator:
             raise ValueError("Energy price must be finite and non-negative")
         self.seed = seed
         self.rng = random.Random(seed)
+        self.failure_rng = random.Random(seed ^ 0x5F3759DF)
+        self.failure_node_rng = random.Random(seed ^ 0x6C8E9CF5)
         self.power_budget_kw = power_budget_kw
         self.failure_probability = failure_probability
         self.recovery_steps = recovery_steps
@@ -185,7 +193,9 @@ class DatacenterSimulator:
             "resource_rejections": 0,
             "power_budget_violations": 0,
             "node_failures": 0,
+            "node_recoveries": 0,
             "workloads_requeued": 0,
+            "workloads_preempted": 0,
             "ai_invocations": 0,
             "ai_attempts": 0,
             "ai_failures": 0,
@@ -266,6 +276,11 @@ class DatacenterSimulator:
                 reason = "unknown_or_not_eligible"
             elif node is None:
                 reason = "unknown_node"
+            elif (
+                workload.required_gpu_model is not None
+                and workload.required_gpu_model != node.gpu_model
+            ):
+                reason = "incompatible_gpu_model"
             else:
                 gpu_count, memory_gb = reserved[node.id]
                 if (
@@ -321,6 +336,7 @@ class DatacenterSimulator:
             if node.recover_at_step is not None and node.recover_at_step <= self.step_count:
                 node.available = True
                 node.recover_at_step = None
+                self.counters["node_recoveries"] += 1
                 events.append({"type": "node_recovered", "node_id": node.id})
 
         for workload_id in cancel:
@@ -335,6 +351,7 @@ class DatacenterSimulator:
             workload = by_id.get(workload_id)
             if workload and workload.status == "running":
                 workload.status, workload.node_id = "pending", None
+                self.counters["workloads_preempted"] += 1
                 events.append({"type": "workload_preempted", "workload_id": workload_id})
             else:
                 rejected.append({"workload_id": workload_id, "reason": "unknown_or_not_running"})
@@ -355,10 +372,13 @@ class DatacenterSimulator:
             )
         self._allocations()
 
-        if self.failure_probability and self.rng.random() < self.failure_probability:
+        if (
+            self.failure_probability
+            and self.failure_rng.random() < self.failure_probability
+        ):
             active = [node for node in self.nodes if node.available]
             if active:
-                failed_node = self.rng.choice(active)
+                failed_node = self.failure_node_rng.choice(active)
                 failed_node.available = False
                 failed_node.recover_at_step = self.step_count + self.recovery_steps
                 self.counters["node_failures"] += 1

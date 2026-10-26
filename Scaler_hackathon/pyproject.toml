@@ -8,27 +8,25 @@ version = "0.1.0"
 description = "Realistic national electricity grid simulation environment for OpenEnv"
 requires-python = ">=3.10"
 dependencies = [
-    # Core OpenEnv runtime
-    "openenv-core[core]>=0.2.1",
-
-    # FastAPI server & ASGI runtime
-    "fastapi>=0.115.0",
+    "fastapi>=0.115.0,<1",
     "uvicorn>=0.24.0",
-
-    # LLM baseline (OpenAI-compatible client — works with Groq)
-    "openai>=1.30.0",
-
-    # Environment variable loading (.env file support — cross-platform)
+    "openai>=1.30.0,<3",
     "python-dotenv>=1.0.0",
+]
 
+[project.optional-dependencies]
+legacy = [
+    "openenv-core[core]>=0.2.1,<0.3",
+    "pillow>=13.0.0; python_version >= '3.11'",
+]
+legacy-training = [
     "torch==2.2.2",
     "transformers==4.36.2",
     "peft==0.7.1",
     "accelerate",
-    "datasets"
+    "datasets",
+    "numpy<2",
 ]
-
-[project.optional-dependencies]
 dev = [
     "pytest>=8.0.0",
     "pytest-cov>=4.0.0",

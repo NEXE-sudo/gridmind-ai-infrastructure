@@ -70,6 +70,8 @@ def request_proposal(state: dict[str, Any]) -> Proposal:
                 "priority": workload["priority"],
                 "deadline": workload["deadline"],
                 "remaining": workload["remaining"],
+                "required_gpu_model": workload.get("required_gpu_model"),
+                "workload_class": workload.get("workload_class", "general"),
             }
             for workload in state["workloads"]
             if workload["status"] == "pending" and workload["submitted"]

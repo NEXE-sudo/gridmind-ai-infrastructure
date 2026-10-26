@@ -1,6 +1,11 @@
 
 from server.datacenter_simulator import DatacenterSimulator, Node, Workload
-from server.metrics import aggregate_runs, calculate_metrics, percentile
+from server.metrics import (
+    aggregate_runs,
+    bootstrap_mean_interval,
+    calculate_metrics,
+    percentile,
+)
 
 
 def test_hand_calculated_queue_wait_turnaround_energy_and_cost():
@@ -72,3 +77,51 @@ def test_aggregate_retains_failed_and_incomplete_run_counts():
     assert summary["metrics"]["throughput_jobs_per_hour"]["n"] == 2
     assert summary["metrics"]["throughput_jobs_per_hour"]["mean"] == 6
     assert summary["metrics"]["ai_latency_ms_mean"]["n"] == 0
+
+
+def test_starvation_infeasibility_and_class_fairness_metrics():
+    sim = DatacenterSimulator(
+        nodes=[Node("tiny", 1, 16, 2.0, gpu_model="NVIDIA T4")],
+        workloads=[
+            Workload(
+                "waiting",
+                "Long wait",
+                1,
+                8,
+                80,
+                submission_time=0,
+                workload_class="inference",
+            ),
+            Workload(
+                "impossible",
+                "Infeasible",
+                4,
+                64,
+                2,
+                submission_time=0,
+                workload_class="training",
+            ),
+        ],
+    )
+    for _ in range(31):
+        sim.apply_action()
+
+    metrics = calculate_metrics(sim)
+    assert metrics["starved_workloads"] == 1
+    assert metrics["infeasible_pending_workloads"] == 1
+    assert metrics["completion_rate_by_workload_class"] == {
+        "inference": 0.0,
+        "training": 0.0,
+    }
+
+
+def test_bootstrap_interval_is_deterministic_and_requires_independent_samples():
+    assert bootstrap_mean_interval([1, 2, 3, 4])["status"] == (
+        "insufficient_independent_runs"
+    )
+    sample = [0.1, 0.2, 0.25, 0.4, 0.6, 0.7]
+    first = bootstrap_mean_interval(sample)
+    second = bootstrap_mean_interval(sample)
+    assert first == second
+    assert first["status"] == "descriptive_percentile_bootstrap"
+    assert first["lower"] < first["upper"]

@@ -1,0 +1,157 @@
+{
+  "suite_id": "gridmind-operations-scenarios",
+  "suite_version": "1.0.0",
+  "synthetic": true,
+  "topologies": {
+    "heterogeneous-mixed": [
+      {"id": "gpu-a100", "gpu_count": 4, "memory_gb": 80, "power_limit_kw": 3.5, "idle_kw": 0.2, "per_gpu_kw": 0.65, "gpu_model": "NVIDIA A100"},
+      {"id": "gpu-l40s", "gpu_count": 4, "memory_gb": 48, "power_limit_kw": 3.0, "idle_kw": 0.18, "per_gpu_kw": 0.55, "gpu_model": "NVIDIA L40S"},
+      {"id": "gpu-t4", "gpu_count": 2, "memory_gb": 24, "power_limit_kw": 1.8, "idle_kw": 0.12, "per_gpu_kw": 0.4, "gpu_model": "NVIDIA T4"}
+    ],
+    "heterogeneous-large": [
+      {"id": "gpu-a100", "gpu_count": 8, "memory_gb": 160, "power_limit_kw": 7.0, "idle_kw": 0.3, "per_gpu_kw": 0.65, "gpu_model": "NVIDIA A100"},
+      {"id": "gpu-l40s", "gpu_count": 4, "memory_gb": 48, "power_limit_kw": 3.0, "idle_kw": 0.18, "per_gpu_kw": 0.55, "gpu_model": "NVIDIA L40S"},
+      {"id": "gpu-t4", "gpu_count": 2, "memory_gb": 24, "power_limit_kw": 1.8, "idle_kw": 0.12, "per_gpu_kw": 0.4, "gpu_model": "NVIDIA T4"}
+    ],
+    "memory-skewed": [
+      {"id": "gpu-memory-large", "gpu_count": 2, "memory_gb": 96, "power_limit_kw": 3.0, "idle_kw": 0.2, "per_gpu_kw": 0.7, "gpu_model": "NVIDIA A100"},
+      {"id": "gpu-memory-small", "gpu_count": 6, "memory_gb": 24, "power_limit_kw": 3.0, "idle_kw": 0.18, "per_gpu_kw": 0.45, "gpu_model": "NVIDIA L40S"}
+    ],
+    "power-tight": [
+      {"id": "gpu-power-a", "gpu_count": 4, "memory_gb": 64, "power_limit_kw": 2.2, "idle_kw": 0.15, "per_gpu_kw": 0.48, "gpu_model": "NVIDIA A100"},
+      {"id": "gpu-power-b", "gpu_count": 4, "memory_gb": 48, "power_limit_kw": 2.0, "idle_kw": 0.12, "per_gpu_kw": 0.42, "gpu_model": "NVIDIA L40S"}
+    ]
+  },
+  "scenarios": [
+    {
+      "id": "balanced",
+      "name": "Balanced baseline",
+      "description": "Mixed inference, embedding, evaluation, and training loads with arrivals spread through the horizon.",
+      "intended_stress": "Baseline capacity and deadline trade-offs.",
+      "topology_id": "heterogeneous-mixed",
+      "power_budget_kw": 7.8,
+      "energy_price_per_kwh": 0.08,
+      "failure_probability": 0.02,
+      "recovery_steps": 1,
+      "max_steps": 60,
+      "workloads": {"count": 10, "arrival_pattern": "staggered", "gpu_counts": [1, 2, 1, 4], "memory_gb": [12, 40, 8, 44], "durations": [3, 12, 6, 18], "priorities": [5, 3, 2, 2], "deadline_after_minutes": [8, 30, 24, 48]}
+    },
+    {
+      "id": "burst_arrivals",
+      "name": "Burst arrivals",
+      "description": "Large batches arrive together and again later, contending for a shared queue.",
+      "intended_stress": "Queue contention and burst recovery.",
+      "topology_id": "heterogeneous-mixed",
+      "power_budget_kw": 7.8,
+      "energy_price_per_kwh": 0.08,
+      "failure_probability": 0.0,
+      "recovery_steps": 1,
+      "max_steps": 75,
+      "workloads": {"count": 18, "arrival_pattern": "burst", "gpu_counts": [1, 2, 1, 4], "memory_gb": [12, 40, 8, 44], "durations": [4, 14, 5, 20], "priorities": [3, 4, 2, 1], "deadline_after_minutes": [14, 35, 25, 55]}
+    },
+    {
+      "id": "mixed_priority_deadlines",
+      "name": "Mixed priorities and tight deadlines",
+      "description": "Latency-sensitive workloads share capacity with lower-priority batch work.",
+      "intended_stress": "Priority ordering versus deadline and throughput trade-offs.",
+      "topology_id": "heterogeneous-mixed",
+      "power_budget_kw": 7.8,
+      "energy_price_per_kwh": 0.08,
+      "failure_probability": 0.0,
+      "recovery_steps": 1,
+      "max_steps": 70,
+      "workloads": {"count": 14, "arrival_pattern": "staggered", "gpu_counts": [1, 1, 2, 4], "memory_gb": [12, 16, 40, 44], "durations": [2, 4, 16, 24], "priorities": [5, 5, 2, 1], "deadline_after_minutes": [4, 8, 45, 65]}
+    },
+    {
+      "id": "heterogeneous_gpu_types",
+      "name": "Heterogeneous GPU requirements",
+      "description": "Workloads require different accelerator classes across a mixed-capacity pool.",
+      "intended_stress": "GPU-type compatibility and capacity-aware placement.",
+      "topology_id": "heterogeneous-large",
+      "power_budget_kw": 10.8,
+      "energy_price_per_kwh": 0.08,
+      "failure_probability": 0.0,
+      "recovery_steps": 1,
+      "max_steps": 65,
+      "workloads": {"count": 12, "arrival_pattern": "staggered", "gpu_counts": [1, 2, 4], "memory_gb": [16, 40, 64], "durations": [4, 12, 20], "priorities": [5, 3, 2], "deadline_after_minutes": [10, 35, 55], "required_gpu_models": [null, "NVIDIA A100", "NVIDIA L40S"]}
+    },
+    {
+      "id": "gpu_memory_pressure",
+      "name": "GPU memory pressure",
+      "description": "Memory-heavy jobs compete across nodes with sharply different memory per accelerator.",
+      "intended_stress": "Memory fragmentation and placement rejection.",
+      "topology_id": "memory-skewed",
+      "power_budget_kw": 6.8,
+      "energy_price_per_kwh": 0.08,
+      "failure_probability": 0.0,
+      "recovery_steps": 1,
+      "max_steps": 65,
+      "workloads": {"count": 14, "arrival_pattern": "staggered", "gpu_counts": [1, 2, 3], "memory_gb": [20, 64, 88], "durations": [5, 12, 20], "priorities": [4, 3, 1], "deadline_after_minutes": [15, 35, 58]}
+    },
+    {
+      "id": "tight_power_budget",
+      "name": "Tight facility power budget",
+      "description": "Node power limits are compatible with the pool, but the facility budget restricts simultaneous work.",
+      "intended_stress": "Facility-wide power-constrained scheduling.",
+      "topology_id": "power-tight",
+      "power_budget_kw": 3.8,
+      "energy_price_per_kwh": 0.08,
+      "failure_probability": 0.0,
+      "recovery_steps": 1,
+      "max_steps": 70,
+      "workloads": {"count": 12, "arrival_pattern": "staggered", "gpu_counts": [1, 2, 3], "memory_gb": [12, 28, 40], "durations": [6, 14, 22], "priorities": [4, 3, 1], "deadline_after_minutes": [18, 40, 65]}
+    },
+    {
+      "id": "node_failure_recovery",
+      "name": "Node failure and recovery",
+      "description": "Active nodes fail stochastically; affected workloads can be requeued and retried.",
+      "intended_stress": "Failure handling, recovery, and requeue behaviour.",
+      "topology_id": "heterogeneous-mixed",
+      "power_budget_kw": 7.8,
+      "energy_price_per_kwh": 0.08,
+      "failure_probability": 0.16,
+      "recovery_steps": 3,
+      "max_steps": 90,
+      "workloads": {"count": 12, "arrival_pattern": "staggered", "gpu_counts": [1, 2, 4], "memory_gb": [12, 40, 44], "durations": [8, 18, 28], "priorities": [4, 3, 2], "deadline_after_minutes": [30, 55, 80]}
+    },
+    {
+      "id": "short_long_contention",
+      "name": "Short jobs versus long-running work",
+      "description": "Long training reservations compete with short latency-sensitive workloads arriving throughout the run.",
+      "intended_stress": "Queue delay and starvation under mixed service times.",
+      "topology_id": "heterogeneous-mixed",
+      "power_budget_kw": 7.8,
+      "energy_price_per_kwh": 0.08,
+      "failure_probability": 0.0,
+      "recovery_steps": 1,
+      "max_steps": 90,
+      "workloads": {"count": 16, "arrival_pattern": "late_short_jobs", "gpu_counts": [4, 2, 1], "memory_gb": [44, 40, 16], "durations": [60, 35, 2], "priorities": [1, 2, 5], "deadline_after_minutes": [85, 70, 8]}
+    },
+    {
+      "id": "infeasible_workloads",
+      "name": "Infeasible workloads",
+      "description": "A mixed feasible queue includes requests exceeding all node resource envelopes.",
+      "intended_stress": "Explicit detection of impossible GPU and memory requests without unsafe placement.",
+      "topology_id": "heterogeneous-mixed",
+      "power_budget_kw": 7.8,
+      "energy_price_per_kwh": 0.08,
+      "failure_probability": 0.0,
+      "recovery_steps": 1,
+      "max_steps": 45,
+      "workloads": {"count": 10, "arrival_pattern": "balanced", "gpu_counts": [1, 2, 12], "memory_gb": [12, 40, 512], "durations": [4, 10, 20], "priorities": [5, 3, 1], "deadline_after_minutes": [12, 30, 40]}
+    },
+    {
+      "id": "combined_stress",
+      "name": "Combined operational stress",
+      "description": "Burst arrivals, mixed priorities, GPU-type requirements, power pressure, and node failures interact.",
+      "intended_stress": "Compound constraints and policy trade-offs under shared exogenous failures.",
+      "topology_id": "power-tight",
+      "power_budget_kw": 3.8,
+      "energy_price_per_kwh": 0.08,
+      "failure_probability": 0.08,
+      "recovery_steps": 2,
+      "max_steps": 90,
+      "workloads": {"count": 18, "arrival_pattern": "burst", "gpu_counts": [1, 2, 3, 4], "memory_gb": [12, 28, 40, 48], "durations": [3, 12, 20, 35], "priorities": [5, 3, 2, 1], "deadline_after_minutes": [8, 32, 55, 80], "required_gpu_models": [null, "NVIDIA A100", "NVIDIA L40S"]}
+    }
+  ]
+}
