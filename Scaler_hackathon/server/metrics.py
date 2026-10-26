@@ -59,32 +59,6 @@ def _reason_counts(reasons: Iterable[str]) -> dict[str, int]:
     return dict(sorted(counts.items()))
 
 
-def bootstrap_mean_interval(
-    values: list[float],
-    *,
-    seed: int = 20_261_026,
-) -> dict[str, float | int | None | str]:
-    """Deterministic percentile bootstrap over independent run-level samples."""
-    if len(values) < 5:
-        return {
-            "lower": None,
-            "upper": None,
-            "replicates": 0,
-            "status": "insufficient_independent_runs",
-        }
-    rng = random.Random(seed)
-    means = sorted(
-        fmean(rng.choices(values, k=len(values)))
-        for _ in range(BOOTSTRAP_REPLICATES)
-    )
-    return {
-        "lower": round(percentile(means, 0.025) or 0.0, 6),
-        "upper": round(percentile(means, 0.975) or 0.0, 6),
-        "replicates": BOOTSTRAP_REPLICATES,
-        "status": "descriptive_percentile_bootstrap",
-    }
-
-
 def calculate_metrics(sim: Any) -> dict[str, Any]:
     """Calculate one auditable snapshot with explicit workload denominators."""
     workloads = sim.workloads
