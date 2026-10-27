@@ -8,10 +8,10 @@ Update this file in every PR. Keep entries factual and evidence-based.
 |---|---|---|---|
 | [#1](https://github.com/NEXE-sudo/gridmind-ai-infrastructure/pull/1) | P0–P1 | Plan, workflow, simulator, schedulers, guarded Nemotron proposal path, API, tests | Squash-merged 2026-10-26 as `5ebc47ca8395c67aacd754bbb66a824c42081727`; post-merge verification passed |
 | [#2](https://github.com/NEXE-sudo/gridmind-ai-infrastructure/pull/2) | P2–P7 | Complete GridMind simulation, metrics, paired-seed benchmark, dashboard, API, docs, and CI | Squash-merged 2026-10-26 as `966cfc6ae22cff284264f988e78b72ad2ac555f1`; post-merge CI and local verification passed |
-| [#3](https://github.com/NEXE-sudo/gridmind-ai-infrastructure/pull/3) | P2–P5 | Ten-scenario paired benchmark suite, simulator/API safeguards, dashboard scenario controls, audits, and submission docs | Squash-merged 2026-10-26 as `f96feea5203cfff41e04a92eecb64200d60186c8`. |
-| [#4](https://github.com/NEXE-sudo/gridmind-ai-infrastructure/pull/4) | P2–P5 | Fixed-horizon workload accounting, scheduling diagnostics, paired evaluation, reproducible evidence | Squash-merged 2026-10-26 as `661ee8dc0080c20cbe4f586c773724478258d727`; base-branch CI passed in run `40373531371`. |
-| [#5](https://github.com/NEXE-sudo/gridmind-ai-infrastructure/pull/5) | P3 | Decision traces | Open and unmerged; its implementation is not included in the PR #6 base or changes. |
-| [#6](https://github.com/NEXE-sudo/gridmind-ai-infrastructure/pull/6) | P3, P5 | Opt-in Nemotron verification, bounded inference telemetry, safe fallback status, and fair live-evaluation safeguards | Open for review from `feat/gridmind-live-nemotron-evaluation` to `feat/gridmind-repurpose`; no live provider request was made. |
+| [#3](https://github.com/NEXE-sudo/gridmind-ai-infrastructure/pull/3) | P2–P5 | Ten-scenario paired benchmark suite, simulator/API safeguards, dashboard scenario controls, audits, and submission docs | Squash-merged 2026-10-26 as `f96feea5203cfff41e04a92eecb64200d60186c8`; checks passed before merge. |
+| [#4](https://github.com/NEXE-sudo/gridmind-ai-infrastructure/pull/4) | P2–P5 | Fixed-horizon workload accounting, scheduling diagnostics, paired evaluation, reproducible evidence | Squash-merged 2026-10-26 as `661ee8dc0080c20cbe4f586c773724478258d727`; target-branch CI passed after merge. |
+| [#5](https://github.com/NEXE-sudo/gridmind-ai-infrastructure/pull/5) | P7 | Scheduler-grounded placement evidence, bounded API decision history, and dashboard trace walkthrough | Squash-merged 2026-10-27 as `b1f9e35d5caeb6c212775ef263919dd95ce161f2`; PR Python/dashboard checks passed. |
+| [#6](https://github.com/NEXE-sudo/gridmind-ai-infrastructure/pull/6) | P3, P5 | Opt-in Nemotron verification, bounded inference telemetry, safe fallback status, and fair live-evaluation safeguards | Open for review from `feat/gridmind-live-nemotron-evaluation` to `feat/gridmind-repurpose`; integrated with merged PR #5; no live provider request was made. |
 
 ## Entry template
 
@@ -107,7 +107,8 @@ Update this file in every PR. Keep entries factual and evidence-based.
   training extra.
 - PR status: opened as #3 from `feat/gridmind-scenario-lab-benchmarks` to
   `feat/gridmind-repurpose`, initially at commit `7848f77`; squash-merged
-  2026-10-26 as `f96feea5203cfff41e04a92eecb64200d60186c8`.
+  2026-10-26 as `f96feea5203cfff41e04a92eecb64200d60186c8`. Python and
+  dashboard checks passed before merge.
 
 ### PR #4 — Harden benchmark validity and stress diagnostics
 - Phase(s): P2–P5.
@@ -170,18 +171,61 @@ Update this file in every PR. Keep entries factual and evidence-based.
   production drain guarantee. Seven existing ESLint Fast Refresh warnings
   remain. `legacy-training` was not installed or audited.
 - PR status: opened as [#4](https://github.com/NEXE-sudo/gridmind-ai-infrastructure/pull/4)
-  from `feat/gridmind-benchmark-validity` to `feat/gridmind-repurpose`;
-  squash-merged 2026-10-26 as
-  `661ee8dc0080c20cbe4f586c773724478258d727`. PR #3 had merged before PR #4.
+  from `feat/gridmind-benchmark-validity` to `feat/gridmind-repurpose`.
+- GitHub Actions: Python and dashboard jobs passed on the final PR branch
+  head after syncing PR #3 and resolving the duplicate helper in
+  `metrics.py`; the target-branch CI run
+  [40373531371](https://github.com/NEXE-sudo/gridmind-ai-infrastructure/actions/runs/40373531371)
+  passed on merge commit `661ee8dc0080c20cbe4f586c773724478258d727`.
+- Merge verification: GitHub confirms PR #4 was squash-merged on 2026-10-26
+  as `661ee8dc0080c20cbe4f586c773724478258d727`.
+
+### PR #5 — Explain scheduler placement decisions
+- Phase(s): P7.
+- Problem solved: successful deterministic placements exposed only a generic
+  policy rationale and workload-to-node mapping. The scheduler's feasible
+  alternatives and the measured selection that led to a node were absent
+  from the API and dashboard trace.
+- Behaviour delivered: deterministic assignment records are emitted directly
+  by the scheduler's candidate evaluation and include queue rank, priority,
+  deadline, feasible node candidates, projected GPU fill, resource availability,
+  incremental power, projected node/facility power, selected node, and the
+  exact max-fill/tie-break rule. Nemotron assignments are labeled as model
+  proposals accepted by simulator validation; no deterministic ranking is
+  claimed for them. API run history retains a bounded 20-step trace and the
+  dashboard restores and renders the latest decisions and candidate evidence.
+- Benchmark evidence: policy actions and fixed benchmark horizons are
+  unchanged. The primary suite is compared with the checked-in 200-run
+  artifact to verify unchanged substantive results; results remain synthetic
+  and offline Nemotron remains deterministic fallback.
+- Tests run and exact result: full Python 3.11 suite — 157 passed; changed
+  Python Ruff — passed; `uv lock --check` — passed; one-seed suite smoke —
+  40/40 runs completed; dashboard tests — 4 passed; TypeScript diagnostics
+  and production build — passed; ESLint — 0 errors and 7 Fast Refresh
+  warnings; npm audit — 0 vulnerabilities; Python 3.11 runtime `pip-audit`
+  — no known vulnerabilities. The five-seed, 200-run suite was regenerated:
+  CSV and Markdown were byte-identical to committed artifacts
+  (CSV SHA-256 `a0402eacb2d35403bedde9c17bb81397ce16b7f2c919aa368bfe86962a50b0347`;
+  Markdown SHA-256 `39b0d64aae8fc607b7f12ad3a43c0baa5357d35c66b286a20c14ac21ceeb7adb`);
+  substantive JSON matched after excluding only `created_at`.
+- Risks/limitations: resource, power, and performance inputs are synthetic.
+  Candidate projections describe simulator bookkeeping and do not predict
+  real infrastructure. Decision history is bounded and process-local.
+- PR status: opened on `feat/gridmind-decision-traces` targeting
+  `feat/gridmind-repurpose`; squash-merged 2026-10-27 as
+  `b1f9e35d5caeb6c212775ef263919dd95ce161f2`. GitHub Actions Python and
+  dashboard checks passed on PR head `e01d4ccdbae7f19caa2bd69bb808dc741e36d044`
+  in run `40375464158`.
 - GitHub Actions: Python and dashboard jobs passed on PR head
-  `7ce108d95892e8bcd599ec90788cde06d96df6b7` in run
-  [40371767347](https://github.com/NEXE-sudo/gridmind-ai-infrastructure/actions/runs/40371767347).
+  `7bb9fcb64a3b1ade356bc43c0a29f09351f258ee` in run
+  [40375261470](https://github.com/NEXE-sudo/gridmind-ai-infrastructure/actions/runs/40375261470).
 
 ### PR #6 — Verify optional Nemotron inference and make evaluation auditable
 - Phase(s): P3 and P5.
 - Starting point: fetched `origin/feat/gridmind-repurpose` at
-  `661ee8dc0080c20cbe4f586c773724478258d727`; PR #5 remained open at
-  `e01d4ccdbae7f19caa2bd69bb808dc741e36d044` and was not included.
+  `661ee8dc0080c20cbe4f586c773724478258d727`. PR #5 was independently open
+  during initial implementation and later merged into the base; its changes
+  were then integrated into this branch and validated together.
 - Existing integration discovered: the base used the OpenAI-compatible
   Token Factory endpoint, `NEBIUS_API_KEY`, and `GRIDMIND_MODEL`, with a JSON
   chat-completion proposal and deterministic simulator validation/fallback.
@@ -198,16 +242,16 @@ Update this file in every PR. Keep entries factual and evidence-based.
   separate attempts, retries, responses, invalid outputs, fallbacks, latency,
   and returned usage; fail-closed deterministic fallback; dashboard status and
   live-control gating; offline experiment provenance and methodology updates.
-- Offline validation: Python 3.11 `uv run --locked --python 3.11 --extra dev
-  --extra legacy python -m pytest -q` — 186 passed; CI Ruff file set — passed;
-  `uv lock --check` — passed; deterministic scenario smoke — 40/40 runs across
-  ten scenarios and four policies; ten Nemotron rows used deterministic
-  fallback. A repeated run generated byte-identical CSV and Markdown.
-  Dashboard — 4 tests passed; `npx tsc -b --pretty false` and production build
-  passed; ESLint — 0 errors and 7 Fast Refresh warnings. `pip-audit` on locked
-  runtime plus legacy test dependencies — no known vulnerabilities;
+- Offline validation after integrating PR #5: Python 3.11 full suite — 189
+  passed; focused API and placement-trace tests — 44 passed; CI Ruff file set
+  and `uv lock --check` — passed; deterministic scenario smoke — 40/40 runs
+  across ten scenarios and four policies, with ten Nemotron rows using
+  deterministic fallback. Dashboard — 5 tests passed; TypeScript diagnostics
+  and production build passed; ESLint — 0 errors and 7 Fast Refresh warnings;
   `npm audit --audit-level=low` — 0 vulnerabilities; `git diff --check` —
-  passed.
+  passed. The separate Python runtime-plus-legacy-extra audit reported no
+  known vulnerabilities before PR #5 integration. The PR #6 authored baseline
+  produced byte-identical CSV and Markdown on repeated generation.
 - Live verification: **blocked / unverified**. `NEBIUS_API_KEY`,
   `GRIDMIND_MODEL`, and `NEBIUS_BASE_URL` were unset. The explicitly opted-in
   smoke command refused before making a request. No exact model ID, live
@@ -221,10 +265,11 @@ Update this file in every PR. Keep entries factual and evidence-based.
   or audited.
 - PR status: open and unmerged at
   [#6](https://github.com/NEXE-sudo/gridmind-ai-infrastructure/pull/6),
-  targeting `feat/gridmind-repurpose`. PR #5 remains open and unmodified.
-- GitHub Actions: Python and dashboard checks passed on PR head
-  `0b7afeecf3d37d70b95e50089f5d288d2a051dc4` in run
-  [40380842304](https://github.com/NEXE-sudo/gridmind-ai-infrastructure/actions/runs/40380842304).
+  targeting `feat/gridmind-repurpose`.
+- GitHub Actions: Python and dashboard checks passed on original PR head
+  `01943c95c24440e905eba1366ce873b04d1884a6` in run
+  `40381027722`. The PR was subsequently updated to include merged PR #5;
+  CI for the combined branch is pending.
 
 ## Decisions
 

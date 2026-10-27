@@ -2,7 +2,7 @@ import pytest
 
 from server.datacenter_simulator import DatacenterSimulator, Node, Workload
 from server.decision import execute_policy_step
-from server.workload_scheduler import schedule
+from server.workload_scheduler import schedule, schedule_with_diagnostics
 
 
 def test_seeded_state_is_reproducible():
@@ -27,6 +27,53 @@ def test_fifo_preserves_queue_order_and_priority_orders_by_priority():
 
     assert list(schedule(sim, "fifo")) == ["low"]
     assert list(schedule(sim, "priority")) == ["high"]
+
+
+def test_scheduler_trace_records_feasible_candidates_and_selected_best_fit():
+    sim = DatacenterSimulator(
+        power_budget_kw=5,
+        nodes=[
+            Node("wide", 4, 64, 4.0, idle_kw=0.2, per_gpu_kw=0.5),
+            Node("compact", 2, 32, 2.0, idle_kw=0.1, per_gpu_kw=0.4),
+        ],
+        workloads=[Workload("job", "Trace target", 1, 8, 2, priority=3)],
+    )
+
+    assignments, diagnostics, placements = schedule_with_diagnostics(
+        sim, "resource_aware"
+    )
+
+    assert assignments == {"job": "compact"}
+    assert diagnostics == []
+    placement = placements[0]
+    assert placement["assignment_source"] == "deterministic_scheduler"
+    assert placement["selection_rule"] == (
+        "max_post_placement_gpu_fill_then_lexicographically_largest_node_id"
+    )
+    assert placement["queue_rank"] == 1
+    assert placement["priority"] == 3
+    assert placement["candidate_nodes"] == [
+        {
+            "node_id": "wide",
+            "projected_gpu_fill": 0.25,
+            "free_gpus_before": 4,
+            "free_memory_gb_before": 64,
+            "power_delta_kw": 0.5,
+            "projected_node_power_kw": 0.7,
+            "projected_facility_power_kw": 0.8,
+            "selected": False,
+        },
+        {
+            "node_id": "compact",
+            "projected_gpu_fill": 0.5,
+            "free_gpus_before": 2,
+            "free_memory_gb_before": 32,
+            "power_delta_kw": 0.4,
+            "projected_node_power_kw": 0.5,
+            "projected_facility_power_kw": 0.7,
+            "selected": True,
+        },
+    ]
 
 
 def test_unknown_node_is_rejected_without_starting_job():

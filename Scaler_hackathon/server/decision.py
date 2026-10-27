@@ -31,6 +31,7 @@ def execute_policy_step(
     fallback_used = False
     validation_rejections: list[dict[str, str]] = []
     scheduling_diagnostics: list[dict[str, Any]] = []
+    placement_diagnostics: list[dict[str, Any]] = []
     if policy == "nemotron":
         queued = any(
             workload.status == "pending" and workload.submitted
@@ -75,6 +76,19 @@ def execute_policy_step(
                     fallback_used = True
                 else:
                     assignments = proposal.assignments
+                    placement_diagnostics = [
+                        {
+                            "workload_id": workload_id,
+                            "node_id": node_id,
+                            "assignment_source": "validated_model_proposal",
+                            "selection_rule": "model_proposed_node",
+                            "simulator_constraints_validated": True,
+                            "candidate_evaluation": (
+                                "not_performed_by_deterministic_scheduler"
+                            ),
+                        }
+                        for workload_id, node_id in sorted(assignments.items())
+                    ]
             else:
                 if proposal.status == "invalid_response":
                     sim.counters["ai_invalid_proposals"] += 1
@@ -89,9 +103,11 @@ def execute_policy_step(
 
         if fallback_used:
             sim.counters["ai_fallbacks"] += 1 if proposal and proposal.status != "offline" else 0
-            assignments, scheduling_diagnostics = schedule_with_diagnostics(
-                sim, "resource_aware"
-            )
+            (
+                assignments,
+                scheduling_diagnostics,
+                placement_diagnostics,
+            ) = schedule_with_diagnostics(sim, "resource_aware")
         elif proposal and proposal.used_model:
             assignments = proposal.assignments
             scheduling_diagnostics = diagnose_unassigned(
@@ -99,12 +115,17 @@ def execute_policy_step(
             )
         else:
             assignments = {}
+            placement_diagnostics = []
         decision = "resource_aware_fallback" if fallback_used else (
             "nemotron" if proposal and proposal.used_model else "nemotron_no_work"
         )
         rationale = proposal.explanation if proposal else "Deterministic fallback."
     else:
-        assignments, scheduling_diagnostics = schedule_with_diagnostics(sim, policy)
+        (
+            assignments,
+            scheduling_diagnostics,
+            placement_diagnostics,
+        ) = schedule_with_diagnostics(sim, policy)
         decision = policy
         rationale = {
             "fifo": "Earliest submitted eligible workload first; placement respects fit.",
@@ -160,6 +181,7 @@ def execute_policy_step(
             ),
             "proposal_validation_rejections": validation_rejections,
             "scheduling_diagnostics": scheduling_diagnostics,
+            "placement_diagnostics": placement_diagnostics,
             "fallback_used": fallback_used,
             "inference_mode": inference_mode,
             "arrivals": arrived,

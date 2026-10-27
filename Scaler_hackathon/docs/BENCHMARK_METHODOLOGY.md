@@ -219,6 +219,27 @@ does not call a model. Its benchmark rows are explicitly marked
 or AI superiority. Live model measurements require a separately verified
 request and a fair comparison.
 
+## Interactive decision trace
+
+The `/run` API response records `placement_diagnostics` for each decision.
+Deterministic scheduler records are produced during the same candidate
+evaluation that chooses a node. They show eligible node alternatives,
+post-placement GPU fill, free resources before placement, estimated
+incremental power, projected node/facility power, and the selected candidate.
+Candidates rejected by placement constraints are not ranked as feasible
+alternatives; their reasons remain in `scheduling_diagnostics`. Queue rank,
+priority, deadline, policy ordering, and the deterministic node-selection
+rule provide additional context.
+
+For a live Nemotron proposal, the trace reports only the proposed node and
+whether the simulator's deterministic resource/power validator accepted it.
+It explicitly does not assert that the deterministic scheduler evaluated or
+ranked the alternatives. The model's free-text rationale remains a proposal,
+not proof of causal reasoning. The API retains the last 20 decision steps
+per recent simulation run in process-local history; this is separate from
+the fixed-horizon benchmark artifacts and does not affect metrics or policy
+actions.
+
 ## Current sample outcome
 
 The current five-seed sample contains 200 successful fixed-horizon simulation
