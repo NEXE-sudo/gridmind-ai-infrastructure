@@ -134,6 +134,11 @@ h1 { font-size: clamp(25px, 3.1vw, 38px); line-height: 1.12; letter-spacing: -.0
 .decision-assignments small { align-self: center; min-width: 54px; color: #718499; font-size: 7px; font-weight: 800; letter-spacing: .08em; }
 .decision-assignments span { display: inline-flex; gap: 5px; padding: 4px 6px; border: 1px solid #263b50; border-radius: 4px; background: #111f2e; color: #9eb2c9; font-size: 8px; }
 .decision-assignments b { color: var(--blue); }
+.placement-evidence { margin: 8px 0; padding: 7px 9px; border-left: 2px solid #2c6386; background: #0e1c2a; }
+.placement-evidence > div + div { margin-top: 7px; padding-top: 7px; border-top: 1px solid var(--stroke-soft); }
+.placement-evidence p { margin: 0 0 3px; color: #d7e6f5; font-size: 9px; }
+.placement-evidence small { display: block; color: #8fa4b9; font-size: 8px; line-height: 1.5; }
+.placement-evidence ul { margin: 3px 0 0; padding-left: 15px; color: #9eb2c9; font-size: 8px; line-height: 1.6; }
 .rejection-note { display: flex; align-items: start; gap: 5px; color: #efb673 !important; }
 .empty-inline { color: #738296; font-size: 9px; }
 .empty-state { min-height: 155px; display: flex; flex-direction: column; justify-content: center; align-items: center; text-align: center; color: #7790a9; gap: 9px; }

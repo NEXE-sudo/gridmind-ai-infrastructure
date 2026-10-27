@@ -330,6 +330,7 @@ def run(req: RunRequest) -> dict[str, Any]:
             "steps_executed": len(history),
             "metrics": sim.state()["metrics"],
             "fallback_used": any(item["fallback_used"] for item in history),
+            "decision_trace": history[-20:],
             "created_at": datetime.now(UTC).isoformat(),
         }
         recent_runs.append(record)
