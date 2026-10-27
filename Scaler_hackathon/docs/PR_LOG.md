@@ -325,8 +325,10 @@ Update this file in every PR. Keep entries factual and evidence-based.
   judge-accessible hosting, a public under-three-minute video, rights and
   eligibility confirmation, and account-specific submission remain blocked
   or operator actions.
-- PR status: branch prepared for review; PR URL and CI status to be recorded
-  after opening. Do not merge this PR.
+- PR status: opened as
+  [#7](https://github.com/NEXE-sudo/gridmind-ai-infrastructure/pull/7),
+  targeting `feat/gridmind-repurpose`; it remains open and unmerged.
+  GitHub checks are pending review/CI at this update.
 
 ## Decisions
 
