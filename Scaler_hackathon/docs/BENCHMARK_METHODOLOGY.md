@@ -15,6 +15,34 @@ sample covers ten synthetic scenarios, five seeds, and four policies (200
 scenario-seed-policy runs). Primary scenario horizons are fixed in suite
 version `1.1.0`; no policy receives a longer primary horizon.
 
+## Focused judge demonstration
+
+The short `node_failure_recovery` walkthrough is deliberately separate from
+the primary ten-scenario benchmark suite. From `Scaler_hackathon/`:
+
+```bash
+uv run python -m server.judge_demo
+uv run python -m server.judge_demo --check
+```
+
+The generator executes FIFO, resource-aware, and Nemotron with seed 7, the
+same materialized workloads, shared exogenous failure trace, and fixed
+90-step horizon. It writes `benchmarks/judge-demo/manifest.json`,
+`results.json`, and `report.md`. The manifest records simulator/policy
+versions, source/configuration/workload/topology/scenario hashes, the shared
+failure-trace hash, and explicit offline inference mode. Raw JSON retains
+per-step scheduler placement candidates, deferral diagnostics, events,
+workload states, and metrics. The report states metric denominators, wait
+sample counts, per-workload outcomes, and the absence of provider calls.
+
+`--check` runs a fresh offline experiment and compares the manifest and report
+exactly and the result JSON after excluding only `experiment.created_at` and
+each `experiment.runs[].created_at`. All other fields, including
+scenario/failure hashes, output states, metrics, and decision traces, must
+match. These focused records are not pooled with the
+primary suite and do not support general scheduler rankings: there is one run
+per policy (`n=1`). No provider, network, GPU, or live-model request is used.
+
 ## Optional live Nemotron comparison
 
 Offline runs remain the reproducible default. Offline Nemotron is reported as

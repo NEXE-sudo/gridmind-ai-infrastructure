@@ -225,6 +225,7 @@ def run_episode(
                             "proposal_prompt_tokens",
                             "proposal_completion_tokens",
                             "scheduling_diagnostics",
+                            "placement_diagnostics",
                             "fallback_used",
                             "rejected_actions",
                             "events",
