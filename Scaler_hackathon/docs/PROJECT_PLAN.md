@@ -23,6 +23,7 @@ code and is not the GridMind runtime.
 | P5 | Reliability, security, CI, packaging | PR #4 local verification and GitHub CI passed | Python 3.11 tests (154 passed), changed-file Ruff, frontend tests/type diagnostics/build/lint, locked dependency audits, lockfile check, deterministic scenario-suite smoke, and PR #4 Python/dashboard CI jobs passed. ESLint reports 7 Fast Refresh warnings. The unused legacy-training extra was not installed or audited; deployment and license remain blockers. |
 | P6 | Hackathon/demo submission package | Prepared, not submission complete | Setup, architecture, methodology, model boundary, threat/limitations, actual sample report, video script and checklist. Public video, license, live model evidence, and any public URL remain outstanding. |
 | P7 | Decision-trace explainability and demo workflow | Implemented and merged in PR #5 | Deterministic candidate evidence is emitted during scheduling, model-proposed nodes are separated from deterministic ranking, the API retains the latest 20 steps per run, and the console restores/displays traces. Full local test/build/audit checks and PR #5 Python/dashboard jobs passed; five-seed benchmark CSV/Markdown and substantive JSON match the merged artifact exactly. Squash merge: `b1f9e35d5caeb6c212775ef263919dd95ce161f2`. |
+| P8 | Judge-ready offline walkthrough, evidence, and submission audit | Implemented in PR #7; GitHub CI passed | Focused `node_failure_recovery` demo uses the merged placement/defer traces; manifest, raw results, generated report, timestamp-only reproducibility comparison, clean-checkout commands, asset/dependency provenance, and source-backed submission checklist. Local acceptance: 192 Python tests passed; changed-file Ruff, `uv lock --check`, demo regeneration/check, 40-run smoke and repeatability checks, five dashboard tests, TypeScript, build, npm/Python audits, Markdown links, and `git diff --check` passed. Clean checkout passed locked Python setup/demo check and `npm ci`, five dashboard tests, TypeScript, and build. ESLint had 0 errors and 7 Fast Refresh warnings. Refreshed primary-suite results matched all operational values; checked-in CSV/JSON omit five inference-telemetry columns added after they were generated. Live inference, owner-approved license, hosted judging URL, public video, and entry remain separate blockers/actions. |
 
 ## PR #1 foundation already delivered
 
@@ -158,3 +159,19 @@ Provider-backed results remain unavailable, and no model advantage is claimed.
 - Compare policies on identical workload sets and seeds; retain failed runs.
 - Do not claim a model call, cloud cost, result, license, merge, deployment, or
   video unless backed by actual evidence.
+
+## PR #7 submission-readiness milestone (in progress)
+
+The selected offline walkthrough is `node_failure_recovery`, seed 7, across
+FIFO, resource-aware, and deterministic Nemotron fallback. Every policy uses
+the same materialized workload set and exogenous failure trace for the full
+90-step horizon. The standalone generator creates the manifest,
+machine-readable results, and report directly from simulator execution; its
+check ignores only intentional `created_at` fields. The demo is separate from
+the ten-scenario primary suite, and its one-seed comparison is exploratory.
+
+The milestone also audits inherited source/assets and the official
+submission requirements. No repository license is added without owner
+confirmation. Live inference, Nebius execution, judge-accessible hosting,
+public YouTube video, entrant rights/eligibility, and final Devpost submission
+remain unverified or operator-owned actions.

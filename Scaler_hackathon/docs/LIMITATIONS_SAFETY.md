@@ -79,6 +79,14 @@ presented as telemetry or a real cloud invoice.
 - No root open-source license was present in the inspected base. A license
   requires repository-owner confirmation of rights and compatibility with
   inherited code/assets; this work does not create or imply a license grant.
+- The [code and asset provenance audit](PROVENANCE_AUDIT.md) records
+  unresolved rights for inherited Scaler source, LoRA adapter/checkpoint
+  artifacts, historical plots, and unused public-directory image assets.
+  Repository visibility and dependency license metadata do not establish
+  ownership or permission to relicense those materials.
+- The focused judge demo is one reproducible seed, separate from the primary
+  suite. It explains actual simulator placement/deferral traces but cannot
+  establish general policy superiority or a live-model benefit.
 
 ## Before production or public deployment
 

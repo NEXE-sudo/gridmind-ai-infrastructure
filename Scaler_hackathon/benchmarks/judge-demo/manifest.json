@@ -1,0 +1,53 @@
+{
+  "demo_id": "node_failure_recovery",
+  "exogenous_failure_trace_sha256": "58d4da2fbb1af547264dc64b31c02a2910ccf6a4a480f951939890c6ab39620a",
+  "failure_probability": 0.16,
+  "horizon_steps": 90,
+  "inference_mode": "deterministic_fallback",
+  "live_model_enabled": false,
+  "live_provider_evidence": null,
+  "policies": [
+    {
+      "id": "fifo",
+      "mode": "baseline_scheduler",
+      "sha256": "ea5c5f08a79410195f3d7f023aa893e5c2e1385c5f145c70efe94d208fa823b5",
+      "version": "gridmind-policies-v3"
+    },
+    {
+      "id": "resource_aware",
+      "mode": "baseline_scheduler",
+      "sha256": "8022ae824a79d405bc1a29e4681c7058e0094a79c92561a97d11304ffeaa385c",
+      "version": "gridmind-policies-v3"
+    },
+    {
+      "id": "nemotron",
+      "mode": "deterministic_fallback",
+      "sha256": "78875824ec1d3725252086bb7571483ac4df65607e4aca33c7add367c499ecb1",
+      "version": "gridmind-policies-v3"
+    }
+  ],
+  "policy_version": "gridmind-policies-v3",
+  "power_budget_kw": 7.8,
+  "recovery_steps": 3,
+  "scenario_configuration_sha256": "aab84433d1ab188f6ff1cfd1a8a861582fdd99d3bb9b8293f3daea3ba256c790",
+  "scenario_id": "node_failure_recovery",
+  "scenario_name": "Node failure and recovery",
+  "scenario_sha256": "7493efa9cd0de8c69ec4af2d751e77930611e9dbd46082dfae50b87a2949bb0f",
+  "scenario_suite_id": "gridmind-operations-scenarios",
+  "scenario_suite_sha256": "4ba26c1b51a8ea231f2ec85d90664beabe19d09d8f3e47325ec235b80cefb27b",
+  "scenario_suite_version": "1.1.0",
+  "schema_version": 1,
+  "seed": 7,
+  "simulator_version": "gridmind-simulator-v4",
+  "source_sha256": {
+    "benchmark_runner": "4b6ccd69d999a8e75abaab119c3d9d33faafcba09d61a5ffb8ee56481ee8fe2f",
+    "decision_logic": "1949145138e496942a71c16cdc5b97bd2d416cc2ea7003b83d7906244aeb1510",
+    "demo_generator": "e72aed2890a3838c5d1defcc915cf10555919fe8562b7b656350ccea3c11d294",
+    "metrics": "5e21a3a7c0d98e1299ebfa5522b63ef3a02d095e7bf3900c8a82239c077290c1",
+    "scenario_loader": "651eebd442c3a40481f6ac312b6ce1fad0cd9aab38330d03d187be73137f6bc5",
+    "scheduler": "996c361484eee9dd564a7673f7eeef466e5e99f86b56a2280966a3eead5259f0",
+    "simulator": "fce4acb6ebcae7f670cba4d46bca83cbb9a0ace362b2d37ed376dc8dfa7dc1df"
+  },
+  "topology_sha256": "bb3455fab41de744f32bf40f32670e2ea67ebad1277c132d2bccd6351d62a856",
+  "workload_set_sha256": "44b7012239826ca63b1840b3bf021859a338f8b74d00c832296cc6949eecbbda"
+}
