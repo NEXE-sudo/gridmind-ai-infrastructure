@@ -40,7 +40,8 @@ jobs:
           server/scenarios.py
           tests/test_gridmind_simulator.py tests/test_gridmind_api.py
           tests/test_gridmind_metrics.py tests/test_gridmind_benchmarks.py
-          tests/test_nemotron.py scripts/smoke_test_nemotron.py
+          tests/test_nemotron.py tests/test_smoke_test_nemotron.py
+          scripts/smoke_test_nemotron.py
       - name: Run deterministic scenario-suite smoke benchmark
         working-directory: Scaler_hackathon
         run: >-

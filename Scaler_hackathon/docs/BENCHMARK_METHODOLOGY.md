@@ -15,6 +15,50 @@ sample covers ten synthetic scenarios, five seeds, and four policies (200
 scenario-seed-policy runs). Primary scenario horizons are fixed in suite
 version `1.1.0`; no policy receives a longer primary horizon.
 
+## Optional live Nemotron comparison
+
+Offline runs remain the reproducible default. Offline Nemotron is reported as
+`deterministic_fallback`, not as model inference. The live path compares the
+resource-aware policy, FIFO, priority, and Nemotron on one predeclared seed and
+one bounded scenario (at most ten simulation steps). The API refuses live
+`/run` and benchmark requests until `/model/verify` has confirmed the exact
+authenticated catalogue entry and one real, non-empty Nemotron proposal that
+passes deterministic simulator validation. The CLI's explicit `--live-model`
+path performs the same catalogue and single-request preflight before starting
+its bounded experiment. The preflight is separate from benchmark samples and
+its status/latency/usage are recorded separately.
+
+Each policy run uses the same materialized scenario and exogenous node-failure
+trace; records retain scenario and failure-trace SHA-256 hashes for pairing.
+Provider errors, malformed/invalid proposals, deterministic fallbacks, and
+simulator errors remain visible; they are not removed from the main result
+records. A fallback policy step remains a Nemotron-policy outcome and is
+counted in `ai_fallbacks`. Provider failures are distinguished from operational
+workload failures.
+
+`ai_attempts` is eligible Nemotron scheduling decisions; `ai_request_attempts`
+is SDK request calls started; `ai_retries` is the additional call count;
+`ai_invocations` is the count of completion response objects received;
+`ai_valid_responses` is schema-valid model output; `ai_failures` is a request
+that did not produce schema-valid output; `ai_invalid_proposals` includes
+schema- or simulator-invalid proposals; `ai_fallbacks` counts deterministic
+fallback decisions. Timeout attempts may have executed remotely without a
+response, so these client-side counters are not a provider billing ledger.
+Provider latency includes retries and is separate from simulated queue wait,
+turnaround, and execution time. Prompt/completion usage is the provider's
+reported value only; when absent, its run metric is `null`, and the summary's
+`n` is the count of runs with returned usage. Other summary metric `n` values
+count successful fixed-horizon simulator runs with a defined metric value;
+workload metrics retain their explicit per-metric denominators in each run's
+raw metrics. No scalar overall score combines trade-offs.
+
+Live inference is nondeterministic and network-dependent. The initial one-seed
+comparison is exploratory only; it cannot establish superiority or support
+statistical claims. A provider-backed comparison was not run for this checkout
+because authorized credentials and a configured model ID were unavailable.
+No live sample, request count, token usage, or model-performance result is
+claimed here.
+
 Each policy receives the same seed-materialized workloads, node topology,
 power budget, scenario hash, and complete exogenous node-failure trace. The
 scenario hash covers the scenario version, horizon, topology, workload

@@ -100,10 +100,17 @@ export interface OperationalMetrics {
   starved_workloads: number;
   ai_attempts: number;
   ai_invocations: number;
+  ai_request_attempts?: number;
+  ai_retries?: number;
   ai_failures: number;
   ai_fallbacks: number;
+  ai_valid_responses?: number;
   ai_invalid_proposals: number;
   ai_latency_ms_mean: number | null;
+  ai_prompt_tokens?: number | null;
+  ai_prompt_token_reports?: number;
+  ai_completion_tokens?: number | null;
+  ai_completion_token_reports?: number;
 }
 
 export interface SimulationState {
@@ -123,7 +130,13 @@ export interface DecisionRecord {
   decision: string;
   explanation: string;
   proposal_status: string;
+  inference_mode?: string;
   proposal_latency_ms?: number | null;
+  proposal_request_attempts?: number;
+  proposal_retry_count?: number;
+  proposal_response_received?: boolean;
+  proposal_prompt_tokens?: number | null;
+  proposal_completion_tokens?: number | null;
   proposed_assignments: Record<string, string>;
   executed_assignments: Record<string, string>;
   proposal_validation_rejections: Array<{ workload_id: string; reason: string }>;

@@ -102,7 +102,11 @@ function formatRate(value: number | null | undefined): string {
 
 export default function GridMindConsole() {
   const [state, setState] = useState<SimulationState | null>(null);
-  const [ready, setReady] = useState<{ model_configured: boolean; state_scope: string } | null>(null);
+  const [ready, setReady] = useState<{
+    model_configured: boolean;
+    model_verification_status: string;
+    state_scope: string;
+  } | null>(null);
   const [history, setHistory] = useState<RunRecord[]>([]);
   const [benchmark, setBenchmark] = useState<BenchmarkResult | null>(null);
   const [decisionLog, setDecisionLog] = useState<DecisionRecord[]>([]);
@@ -189,11 +193,29 @@ export default function GridMindConsole() {
       `Scenario reset with seed ${seed}.`,
     );
 
+  const verifyLiveModel = () =>
+    runAction(
+      async () => {
+        const result = await api<{ status: string }>("/model/verify", {
+          method: "POST",
+          body: JSON.stringify({ confirm_live_request: true }),
+        });
+        if (result.status !== "live_success") setUseLiveModel(false);
+        return result.status === "live_success"
+          ? "Catalogue and one live Nemotron request verified; live scheduling is now enabled for this server process."
+          : `Live verification did not succeed: ${result.status.replace(/_/g, " ")}.`;
+      },
+      "Live model verification finished.",
+    );
+
   const execute = (count: number) =>
     runAction(
       async () => {
         if (useLiveModel && policy !== "nemotron") {
           throw new Error("Select Nemotron before enabling live inference.");
+        }
+        if (useLiveModel && count > 10) {
+          throw new Error("Live inference is limited to ten steps per request.");
         }
         const result = await api<{
           history: DecisionRecord[];
@@ -226,6 +248,10 @@ export default function GridMindConsole() {
       setError("Enter one to five integer seeds, separated by commas.");
       return;
     }
+    if (useLiveModel && parsedSeeds.length !== 1) {
+      setError("Live comparisons are limited to one seed. Use offline mode for repeated trials.");
+      return;
+    }
     void runAction(
       async () => {
         const result = await api<BenchmarkResult>("/benchmarks/run", {
@@ -254,6 +280,9 @@ export default function GridMindConsole() {
   };
 
   const metrics: OperationalMetrics | undefined = state?.metrics;
+  const modelVerificationStatus =
+    ready?.model_verification_status ??
+    (ready?.model_configured ? "not_attempted" : "not_configured");
   const displayedDecisions = useMemo(() => decisionLog.slice(0, 5), [decisionLog]);
 
   return (
@@ -272,9 +301,12 @@ export default function GridMindConsole() {
           <span className="live-dot" />
           <span>SIMULATION</span>
           <span className="separator">/</span>
-          <span className={ready?.model_configured ? "model-ready" : "model-offline"}>
-            {ready?.model_configured ? "MODEL CONFIGURED" : "MODEL NOT VERIFIED"}
+          <span className={modelVerificationStatus === "live_success" ? "model-ready" : "model-offline"}>
+            {modelVerificationStatus.replace(/_/g, " ").toUpperCase()}
           </span>
+          <button className="text-button" onClick={() => void verifyLiveModel()} disabled={busy || !ready?.model_configured}>
+            Verify model · 1 live request
+          </button>
         </div>
       </header>
 
@@ -323,8 +355,8 @@ export default function GridMindConsole() {
               <MetricCard label="EST. ENERGY" value={`${formatNumber(metrics?.estimated_energy_kwh, 4)} kWh`} detail={`$${formatNumber(metrics?.estimated_energy_cost, 4)} at configured tariff`} icon={Gauge} />
               <MetricCard label="CONSTRAINT REJECTIONS" value={formatNumber(metrics?.rejected_actions, 0)} detail={`${formatNumber(metrics?.resource_rejections, 0)} constraint rejections · ${formatNumber((metrics?.node_power_rejections ?? 0) + (metrics?.facility_power_rejections ?? 0), 0)} are power-related`} icon={ShieldCheck} tone={(metrics?.rejected_actions ?? 0) > 0 ? "warning" : "default"} />
               <MetricCard label="INFRA EVENTS" value={formatNumber(metrics?.failed_nodes, 0)} detail={`${formatNumber(metrics?.workloads_requeued, 0)} workloads requeued`} icon={Server} tone={(metrics?.failed_nodes ?? 0) > 0 ? "warning" : "default"} />
-              <MetricCard label="AI FALLBACKS" value={formatNumber(metrics?.ai_fallbacks, 0)} detail={`${formatNumber(metrics?.ai_invocations, 0)} live calls · ${formatNumber(metrics?.ai_failures, 0)} failures · ${formatNumber(metrics?.ai_invalid_proposals, 0)} invalid`} icon={ShieldCheck} />
-              <MetricCard label="AI LATENCY" value={metrics?.ai_latency_ms_mean == null ? "—" : `${formatNumber(metrics.ai_latency_ms_mean, 1)} ms`} detail="Mean observed live request latency" icon={Activity} />
+              <MetricCard label="AI FALLBACKS" value={formatNumber(metrics?.ai_fallbacks, 0)} detail={`${formatNumber(metrics?.ai_request_attempts, 0)} request attempts · ${formatNumber(metrics?.ai_invocations, 0)} responses · ${formatNumber(metrics?.ai_valid_responses, 0)} schema-valid · ${formatNumber(metrics?.ai_retries, 0)} retries · ${formatNumber(metrics?.ai_failures, 0)} failures · ${formatNumber(metrics?.ai_invalid_proposals, 0)} invalid`} icon={ShieldCheck} />
+              <MetricCard label="AI LATENCY" value={metrics?.ai_latency_ms_mean == null ? "—" : `${formatNumber(metrics.ai_latency_ms_mean, 1)} ms`} detail={`Mean end-to-end provider latency · reported tokens in/out ${formatNumber(metrics?.ai_prompt_tokens, 0)} / ${formatNumber(metrics?.ai_completion_tokens, 0)}`} icon={Activity} />
             </section>
 
             <section className="control-panel panel">
@@ -357,7 +389,7 @@ export default function GridMindConsole() {
                   <input type="number" min={1} max={100} value={steps} onChange={(event) => setSteps(Math.max(1, Math.min(100, Number(event.target.value) || 1)))} disabled={busy} />
                 </label>
                 <label className={`model-toggle ${policy !== "nemotron" ? "toggle-disabled" : ""}`}>
-                  <input type="checkbox" checked={useLiveModel} onChange={(event) => setUseLiveModel(event.target.checked)} disabled={busy || policy !== "nemotron"} />
+                  <input type="checkbox" checked={useLiveModel} onChange={(event) => setUseLiveModel(event.target.checked)} disabled={busy || policy !== "nemotron" || ready?.model_verification_status !== "live_success"} />
                   <span className="toggle-track" />
                   <span>Request live model</span>
                 </label>
@@ -413,7 +445,7 @@ export default function GridMindConsole() {
                       <div className="decision-item" key={`${decision.step}-${index}`}>
                         <div className="decision-meta">
                           <span>STEP {decision.step}</span>
-                          <span>{decision.proposal_status.replace(/_/g, " ")}{decision.proposal_latency_ms == null ? "" : ` · ${formatNumber(decision.proposal_latency_ms, 1)} ms`}</span>
+                          <span>{(decision.inference_mode ?? decision.proposal_status).replace(/_/g, " ")}{decision.proposal_latency_ms == null ? "" : ` · ${formatNumber(decision.proposal_latency_ms, 1)} ms`}{decision.proposal_request_attempts ? ` · ${decision.proposal_request_attempts} provider attempt(s)` : ""}</span>
                         </div>
                         <p>{decision.explanation}</p>
                         <div className="decision-assignments">

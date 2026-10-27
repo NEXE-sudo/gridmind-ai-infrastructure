@@ -215,12 +215,17 @@ class DatacenterSimulator:
             "workloads_requeued": 0,
             "workloads_preempted": 0,
             "ai_invocations": 0,
+            "ai_request_attempts": 0,
             "ai_attempts": 0,
+            "ai_retries": 0,
             "ai_failures": 0,
             "ai_fallbacks": 0,
+            "ai_valid_responses": 0,
             "ai_invalid_proposals": 0,
             "ai_prompt_tokens": 0,
+            "ai_prompt_token_reports": 0,
             "ai_completion_tokens": 0,
+            "ai_completion_token_reports": 0,
         }
         self._allocations()
         for workload in self.workloads:

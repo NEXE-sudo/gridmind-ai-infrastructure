@@ -10,10 +10,17 @@ from server.decision import Proposal
 
 @pytest.fixture(autouse=True)
 def isolated_simulator(monkeypatch):
+    monkeypatch.delenv("NEBIUS_API_KEY", raising=False)
+    monkeypatch.delenv("GRIDMIND_MODEL", raising=False)
     monkeypatch.setattr(gridmind_app, "sim", DatacenterSimulator(seed=7))
     monkeypatch.setattr(gridmind_app, "active_scenario", "standard")
     monkeypatch.setattr(gridmind_app, "recent_runs", [])
     monkeypatch.setattr(gridmind_app, "latest_benchmark", None)
+    monkeypatch.setattr(gridmind_app, "verified_live_model_id", None)
+    monkeypatch.setattr(gridmind_app, "last_verification_model_id", None)
+    monkeypatch.setattr(
+        gridmind_app, "last_verification_status", "not_attempted"
+    )
 
 
 def test_app_startup_and_health_state_policy_routes():
@@ -98,6 +105,9 @@ def test_model_placement_is_labeled_validated_without_scheduler_ranking(monkeypa
     )
     monkeypatch.setenv("NEBIUS_API_KEY", "test-key")
     monkeypatch.setenv("GRIDMIND_MODEL", "nvidia/test-model")
+    monkeypatch.setattr(
+        gridmind_app, "verified_live_model_id", "nvidia/test-model"
+    )
     monkeypatch.setattr(
         "server.decision.request_proposal",
         lambda _: Proposal({"job": "gpu"}, "Model-selected GPU.", "model"),
@@ -269,11 +279,16 @@ def test_invalid_nemotron_assignment_uses_and_reports_safe_fallback(monkeypatch)
             {"train-001": "unknown-node"},
             "Place the training workload.",
             "model",
+            request_attempts=1,
+            response_received=True,
         ),
     )
 
     monkeypatch.setenv("NEBIUS_API_KEY", "test-key")
-    monkeypatch.setenv("GRIDMIND_MODEL", "nvidia/test-model")
+    monkeypatch.setenv("GRIDMIND_MODEL", "nvidia/Nemotron-test")
+    monkeypatch.setattr(
+        gridmind_app, "verified_live_model_id", "nvidia/Nemotron-test"
+    )
     with TestClient(gridmind_app.app) as client:
         response = client.post(
             "/run",
@@ -284,6 +299,7 @@ def test_invalid_nemotron_assignment_uses_and_reports_safe_fallback(monkeypatch)
     result = response.json()
     assert result["fallback_used"] is True
     assert result["history"][0]["decision"] == "resource_aware_fallback"
+    assert result["history"][0]["inference_mode"] == "invalid_model_proposal"
     assert result["history"][0]["rejected_actions"] == []
     assert all(
         placement["assignment_source"] == "deterministic_scheduler"
@@ -294,11 +310,20 @@ def test_invalid_nemotron_assignment_uses_and_reports_safe_fallback(monkeypatch)
 def test_valid_nemotron_assignment_is_applied_without_fallback(monkeypatch):
     monkeypatch.setattr(
         "server.decision.request_proposal",
-        lambda _: Proposal({"infer-001": "gpu-a"}, "Fits the available node.", "model"),
+        lambda _: Proposal(
+            {"infer-001": "gpu-a"},
+            "Fits the available node.",
+            "model",
+            request_attempts=1,
+            response_received=True,
+        ),
     )
 
     monkeypatch.setenv("NEBIUS_API_KEY", "test-key")
-    monkeypatch.setenv("GRIDMIND_MODEL", "nvidia/test-model")
+    monkeypatch.setenv("GRIDMIND_MODEL", "nvidia/Nemotron-test")
+    monkeypatch.setattr(
+        gridmind_app, "verified_live_model_id", "nvidia/Nemotron-test"
+    )
     with TestClient(gridmind_app.app) as client:
         response = client.post(
             "/run",
@@ -309,4 +334,220 @@ def test_valid_nemotron_assignment_is_applied_without_fallback(monkeypatch):
     result = response.json()
     assert result["fallback_used"] is False
     assert result["history"][0]["decision"] == "nemotron"
+    assert result["history"][0]["inference_mode"] == "live_success"
     assert result["history"][0]["rejected_actions"] == []
+
+
+def test_live_run_and_benchmark_require_successful_preflight(monkeypatch):
+    monkeypatch.setenv("NEBIUS_API_KEY", "test-key")
+    monkeypatch.setenv("GRIDMIND_MODEL", "nvidia/Nemotron-test")
+    with TestClient(gridmind_app.app) as client:
+        run = client.post(
+            "/run",
+            json={"policy": "nemotron", "steps": 1, "use_live_model": True},
+        )
+        benchmark = client.post(
+            "/benchmarks/run",
+            json={
+                "seeds": [1],
+                "policies": ["nemotron"],
+                "use_live_model": True,
+            },
+        )
+
+    assert run.status_code == 409
+    assert benchmark.status_code == 409
+
+
+def test_model_verification_is_explicit_and_reports_live_success(monkeypatch):
+    monkeypatch.setenv("NEBIUS_API_KEY", "secret")
+    monkeypatch.setenv("GRIDMIND_MODEL", "nvidia/Nemotron-test")
+    monkeypatch.setattr(
+        gridmind_app,
+        "verify_catalogue_model",
+        lambda *_args, **_kwargs: True,
+    )
+    monkeypatch.setattr(
+        gridmind_app,
+        "request_proposal",
+        lambda _: Proposal(
+            {"infer-001": "gpu-a"},
+            "Fits.",
+            "model",
+            latency_ms=12.0,
+            prompt_tokens=9,
+            completion_tokens=4,
+            model_id="nvidia/Nemotron-test",
+            request_attempts=1,
+            response_received=True,
+        ),
+    )
+    monkeypatch.setattr(
+        "server.decision.request_proposal",
+        lambda _: Proposal(
+            {"infer-001": "gpu-a"},
+            "Fits.",
+            "model",
+            request_attempts=1,
+            response_received=True,
+        ),
+    )
+    with TestClient(gridmind_app.app) as client:
+        refused = client.post("/model/verify", json={})
+        verified = client.post(
+            "/model/verify", json={"confirm_live_request": True}
+        )
+        ready = client.get("/ready")
+        benchmark = client.post(
+            "/benchmarks/run",
+            json={
+                "seeds": [1],
+                "policies": ["nemotron"],
+                "use_live_model": True,
+            },
+        )
+
+    assert refused.status_code == 422
+    assert verified.status_code == 200
+    assert verified.json()["status"] == "live_success"
+    assert verified.json()["catalogue_status"] == "verified_exact_match"
+    assert verified.json()["prompt_tokens"] == 9
+    assert "assignments" not in verified.json()
+    assert "secret" not in verified.text
+    assert ready.json()["model_verification_status"] == "live_success"
+    assert benchmark.status_code == 200
+
+
+def test_model_verification_without_credentials_does_not_attempt_provider():
+    with TestClient(gridmind_app.app) as client:
+        response = client.post(
+            "/model/verify", json={"confirm_live_request": True}
+        )
+        ready = client.get("/ready")
+
+    assert response.status_code == 200
+    assert response.json()["status"] == "not_configured"
+    assert response.json()["request_attempts"] == 0
+    assert ready.json()["model_verification_status"] == "not_configured"
+
+
+def test_model_verification_invalid_model_id_is_persisted(monkeypatch):
+    monkeypatch.setenv("NEBIUS_API_KEY", "secret")
+    monkeypatch.setenv("GRIDMIND_MODEL", "nvidia/Other-model")
+    with TestClient(gridmind_app.app) as client:
+        response = client.post(
+            "/model/verify", json={"confirm_live_request": True}
+        )
+        ready = client.get("/ready")
+
+    assert response.json()["status"] == "invalid_model_id"
+    assert response.json()["request_attempts"] == 0
+    assert ready.json()["model_verification_status"] == "invalid_model_id"
+
+
+def test_model_verification_catalogue_miss_stops_before_inference(monkeypatch):
+    monkeypatch.setenv("NEBIUS_API_KEY", "secret")
+    monkeypatch.setenv("GRIDMIND_MODEL", "nvidia/Nemotron-test")
+    monkeypatch.setattr(
+        gridmind_app,
+        "verify_catalogue_model",
+        lambda *_args, **_kwargs: False,
+    )
+    monkeypatch.setattr(
+        gridmind_app,
+        "request_proposal",
+        lambda _: pytest.fail("inference must not run for an unlisted model"),
+    )
+    with TestClient(gridmind_app.app) as client:
+        response = client.post(
+            "/model/verify", json={"confirm_live_request": True}
+        )
+        ready = client.get("/ready")
+
+    assert response.json()["status"] == "invalid_model_id"
+    assert response.json()["catalogue_status"] == "model_not_listed"
+    assert response.json()["request_attempts"] == 0
+    assert ready.json()["model_verification_status"] == "invalid_model_id"
+
+
+def test_model_verification_provider_failure_is_reported_without_raw_details(
+    monkeypatch,
+):
+    monkeypatch.setenv("NEBIUS_API_KEY", "secret")
+    monkeypatch.setenv("GRIDMIND_MODEL", "nvidia/Nemotron-test")
+
+    def fail_catalogue(*_args, **_kwargs):
+        raise RuntimeError("secret response body")
+
+    monkeypatch.setattr(gridmind_app, "verify_catalogue_model", fail_catalogue)
+    with TestClient(gridmind_app.app) as client:
+        response = client.post(
+            "/model/verify", json={"confirm_live_request": True}
+        )
+        ready = client.get("/ready")
+
+    assert response.json()["status"] == "live_failure_fallback"
+    assert response.json()["error_code"] == "catalogue_unavailable"
+    assert ready.json()["model_verification_status"] == "live_failure_fallback"
+    assert "secret" not in response.text
+
+
+@pytest.mark.parametrize(
+    ("setting", "value"),
+    [
+        ("GRIDMIND_INFERENCE_TIMEOUT_SECONDS", "nan"),
+        ("NEBIUS_BASE_URL", "http://attacker.example/v1/"),
+    ],
+)
+def test_model_verification_rejects_provider_config_before_request(
+    monkeypatch, setting, value
+):
+    monkeypatch.setenv("NEBIUS_API_KEY", "secret")
+    monkeypatch.setenv("GRIDMIND_MODEL", "nvidia/Nemotron-test")
+    monkeypatch.setenv(setting, value)
+    monkeypatch.setattr(
+        gridmind_app,
+        "verify_catalogue_model",
+        lambda *_args, **_kwargs: pytest.fail("must not query catalogue"),
+    )
+    with TestClient(gridmind_app.app) as client:
+        response = client.post(
+            "/model/verify", json={"confirm_live_request": True}
+        )
+        ready = client.get("/ready")
+
+    assert response.json()["status"] == "invalid_configuration"
+    assert response.json()["request_attempts"] == 0
+    assert ready.json()["model_verification_status"] == "invalid_configuration"
+    assert "secret" not in response.text
+
+
+def test_model_verification_rejects_invalid_proposal_and_keeps_benchmark_gated(
+    monkeypatch,
+):
+    monkeypatch.setenv("NEBIUS_API_KEY", "secret")
+    monkeypatch.setenv("GRIDMIND_MODEL", "nvidia/Nemotron-test")
+    monkeypatch.setattr(
+        gridmind_app,
+        "verify_catalogue_model",
+        lambda *_args, **_kwargs: True,
+    )
+    monkeypatch.setattr(
+        gridmind_app,
+        "request_proposal",
+        lambda _: Proposal(
+            {"infer-001": "unknown"},
+            "Invalid node.",
+            "model",
+            request_attempts=1,
+            response_received=True,
+        ),
+    )
+    with TestClient(gridmind_app.app) as client:
+        verified = client.post(
+            "/model/verify", json={"confirm_live_request": True}
+        )
+        ready = client.get("/ready")
+
+    assert verified.json()["status"] == "invalid_model_proposal"
+    assert ready.json()["model_verification_status"] == "invalid_model_proposal"

@@ -403,15 +403,28 @@ def calculate_metrics(sim: Any) -> dict[str, Any]:
         "facility_power_rejections": counters["facility_power_rejections"],
         "fragmented_gpu_fraction": round(_fragmented_gpu_fraction(sim), 4),
         "ai_invocations": counters["ai_invocations"],
+        "ai_request_attempts": counters["ai_request_attempts"],
         "ai_attempts": counters["ai_attempts"],
+        "ai_retries": counters["ai_retries"],
         "ai_failures": counters["ai_failures"],
         "ai_fallbacks": counters["ai_fallbacks"],
+        "ai_valid_responses": counters["ai_valid_responses"],
         "ai_invalid_proposals": counters["ai_invalid_proposals"],
         "ai_latency_ms_mean": round(fmean(sim.ai_latencies_ms), 3)
         if sim.ai_latencies_ms
         else None,
-        "ai_prompt_tokens": counters["ai_prompt_tokens"],
-        "ai_completion_tokens": counters["ai_completion_tokens"],
+        "ai_prompt_tokens": (
+            counters["ai_prompt_tokens"]
+            if counters["ai_prompt_token_reports"]
+            else None
+        ),
+        "ai_prompt_token_reports": counters["ai_prompt_token_reports"],
+        "ai_completion_tokens": (
+            counters["ai_completion_tokens"]
+            if counters["ai_completion_token_reports"]
+            else None
+        ),
+        "ai_completion_token_reports": counters["ai_completion_token_reports"],
         "model_cost": sim.model_cost,
         "model_cost_basis": sim.model_cost_basis,
         "workloads_with_deadlines": len(deadlines),
@@ -465,10 +478,18 @@ def aggregate_runs(runs: list[dict[str, Any]]) -> dict[str, Any]:
         "permanently_infeasible_workloads",
         "deadline_misses",
         "ai_invocations",
+        "ai_request_attempts",
+        "ai_attempts",
+        "ai_retries",
         "ai_failures",
         "ai_fallbacks",
+        "ai_valid_responses",
         "ai_invalid_proposals",
         "ai_latency_ms_mean",
+        "ai_prompt_tokens",
+        "ai_prompt_token_reports",
+        "ai_completion_tokens",
+        "ai_completion_token_reports",
         "failed_nodes",
         "recovered_nodes",
         "workloads_requeued",
