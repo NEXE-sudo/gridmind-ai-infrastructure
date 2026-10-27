@@ -317,6 +317,12 @@ Update this file in every PR. Keep entries factual and evidence-based.
   --audit-level=low` — 0 vulnerabilities; Markdown relative-link check — 12
   files checked, 0 broken links; `git diff --check` — passed. The optional
   `legacy-training` extra was not audited.
+- Clean-checkout verification: locked `uv sync`, focused demo `--check`,
+  `npm ci` (using an isolated temporary npm cache after a shared-cache
+  permission collision), five dashboard tests, TypeScript diagnostics, and
+  production build all passed. GitHub Actions Python and dashboard jobs passed
+  on PR head `08440adff65f27f14bf7dcfa49bf7fb4189cdd08` in run
+  [40464564169](https://github.com/NEXE-sudo/gridmind-ai-infrastructure/actions/runs/40464564169).
 - Provenance and submission: GitHub reported no repository license; inherited
   contributor, adapter/checkpoint, plot, and unused public asset rights remain
   unclear and require owner/legal review. The official Devpost rules were
@@ -328,7 +334,7 @@ Update this file in every PR. Keep entries factual and evidence-based.
 - PR status: opened as
   [#7](https://github.com/NEXE-sudo/gridmind-ai-infrastructure/pull/7),
   targeting `feat/gridmind-repurpose`; it remains open and unmerged.
-  GitHub checks are pending review/CI at this update.
+  GitHub Python and dashboard CI passed; review is pending.
 
 ## Decisions
 
